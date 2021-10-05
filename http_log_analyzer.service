@@ -1,0 +1,14 @@
+[Unit]
+Description=Http Log Analyzer
+After=network.target
+
+[Service]
+User=root
+Group=root
+Type=simple
+ExecStart=/opt/http_log_analizer/http_log_analizer.py --block
+RestartSec=1
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

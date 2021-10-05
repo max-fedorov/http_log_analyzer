@@ -1,0 +1,35 @@
+tailf: True
+path: "/srv/www/example.com/logs/example.com-acc"
+collect_interval: 5
+top_count: 10
+show_rps: True
+show_ip: True
+show_request: True
+show_agent: False
+show_slow_requests: False
+
+block_threshold_rps: 20
+block_threshold_ip: 4000
+
+#bad_user_agent:
+#  - "AhrefsBot"
+#  - "NetpeakSpiderBot"
+
+#bad_dns:
+#  - ".ahrefs.com"
+#  - ".spider.yandex.com"
+#  - ".search.msn.com"
+#  - ".go.mail.ru"
+
+whitelist_ip:
+  - "127.0.0.1"
+
+whitelist_dns:
+  - "test.dontblock.com"
+
+#whitelist_requests: ['.webp']
+
+block_cmd: "./iptctl.py --time 60 --add {ip}"
+
+
+
