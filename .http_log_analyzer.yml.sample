@@ -15,6 +15,7 @@ block_threshold_ip: 4000
 #  - "AhrefsBot"
 #  - "NetpeakSpiderBot"
 
+#bad_dns_block_threshold_rps: 5
 #bad_dns:
 #  - ".ahrefs.com"
 #  - ".spider.yandex.com"

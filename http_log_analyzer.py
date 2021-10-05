@@ -87,6 +87,8 @@ class Config():
         self.blocked_list = []
         self.block_threshold_rps = 5
         self.block_threshold_ip = 300
+        self.bad_user_agent_block_threshold_rps = None
+        self.bad_dns_block_threshold_rps = None
         self.whitelist_requests = []
         self.bad_dns = []
         self.bad_user_agent = []
@@ -124,6 +126,10 @@ class Config():
                 self.block_threshold_rps = conf['block_threshold_rps']
             if 'block_threshold_ip' in conf:
                 self.block_threshold_ip = conf['block_threshold_ip']
+            if 'bad_user_agent_block_threshold_rps' in conf:
+                self.bad_user_agent_block_threshold_rps = conf['bad_user_agent_block_threshold_rps']
+            if 'bad_dns_block_threshold_rps' in conf:
+                self.bad_dns_block_threshold_rps = conf['bad_dns_block_threshold_rps']
 
             if 'bad_user_agent' in conf:
                 self.bad_user_agent = conf['bad_user_agent']
@@ -195,51 +201,49 @@ def calc_rps_top(logs):
 def block(params):
     # block by rps count
     for ip, count in sorted(STAT['rps_ip'].items(), key=lambda kv: kv[1], reverse=True):
-        if count < params.block_threshold_rps:
-            continue
         if ip in params.blocked_list:
             continue
         if ip not in DNS:
             DNS[ip] = socket.getfqdn(ip)
+        block_ip = False
+        if params.bad_dns_block_threshold_rps is not None and count >= params.bad_dns_block_threshold_rps:
+            for d in params.bad_dns:
+                if d in DNS[ip]:
+                    block_ip = True
+                    break
+        if not block_ip and count >= params.block_threshold_rps:
+            cont = False
+            for d in params.whitelist_dns:
+                if d in DNS[ip]:
+                    cont = True
+                    break
+            if cont:
+                continue
 
-        cont = False
-        for d in params.whitelist_dns:
-            if d in DNS[ip]:
-                cont = True
-                break
-        if cont:
-            continue
-
-        # if count == params.block_rps_threshold:
-        #is_bad_dns = False
-        # for d in params.bad_dns:
-        #    if d in DNS[ip]:
-        #        is_bad_dns = True
-        #        break
-        # if not is_bad_dns: continue
-
-        exec_block(ip, count, 'rps', params)
-        del STAT['rps_ip'][ip]
+        if block_ip:
+            exec_block(ip, count, 'rps', params)
+            del STAT['rps_ip'][ip]
 
     # block by ip count
     for ip, count in sorted(STAT['ip'].items(), key=lambda kv: kv[1], reverse=True):
-        if count < params.block_threshold_ip:
-            continue
         if ip in params.blocked_list:
             continue
         if ip not in DNS:
             DNS[ip] = socket.getfqdn(ip)
+        block_ip = False
+        
+        if not block_ip and count >= params.block_threshold_ip:
+            cont = False
+            for d in params.whitelist_dns:
+                if d in DNS[ip]:
+                    cont = True
+                    break
+            if cont:
+                continue
 
-        cont = False
-        for d in params.whitelist_dns:
-            if d in DNS[ip]:
-                cont = True
-                break
-        if cont:
-            continue
-
-        exec_block(ip, count, 'ip', params)
-        del STAT['ip'][ip]
+        if block_ip:
+            exec_block(ip, count, 'ip', params)
+            del STAT['ip'][ip]
 
 
 def exec_block(ip, count, block_type, params):
@@ -370,7 +374,6 @@ def show_stat(params):
     stdscr.addstr(stat)
     stdscr_refresh()
     params.stdscr_contents = stat
-    
 
 
 def generate_stat(params):
@@ -393,7 +396,7 @@ def generate_stat(params):
                                     dt=str(datetime.datetime.now()).split(
                                         '.')[0],
                                     la=os.getloadavg())
-    
+
     if params.show_rps:
         out += '-'*40
         out += '\n'
@@ -578,4 +581,3 @@ if __name__ == '__main__':
         for l in params.stdscr_contents.splitlines():
             info(str(l).strip().lstrip('b').strip("'").strip())
     debug('Shutting down')
-
