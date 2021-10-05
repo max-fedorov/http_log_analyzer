@@ -1,4 +1,4 @@
-#!/opt/http_log_analizer/env/bin/python
+#!/opt/http_log_analyzer/env/bin/python
 
 
 '''

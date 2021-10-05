@@ -6,8 +6,9 @@ Requirements: yum install gcc python36-devel
 
 ```
 cd /opt
-git clone git@github.com:skam/http_log_analyzer.git
+git clone https://github.com/skam/http_log_analyzer.git
 cd http_log_analizer/
+chmod +x http_log_analyzer.py iptctl.py
 python3 -m venv env
 source env/bin/activate
 pip  install -r requirements.txt
