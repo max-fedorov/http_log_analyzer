@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/opt/http_log_analyzer/env/bin/python
 
 '''
 DESCR: This tool allow block IP in iptables and set timeout. When timeout is come - remove block rule.
@@ -12,12 +12,7 @@ import traceback
 import os
 import ipaddress
 
-WHITE_LIST = ['109.235.188.221',  # client ip
-              '46.4.39.182',
-              '46.4.39.159',
-              '127.0.0.1',
-              '95.217.35.19'  # vs21.southbridge.ru
-              ]
+WHITE_LIST = ['127.0.0.1']
 
 
 class Config():

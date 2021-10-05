@@ -2,7 +2,7 @@
 
 ###### 1. Install
 
-Requirements: yum install gcc python36-devel
+Requirements: Python 3.6+
 
 ```
 cd /opt
