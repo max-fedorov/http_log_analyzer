@@ -511,6 +511,7 @@ if __name__ == '__main__':
     parser.add_argument('--req', type=str, help="filter by request")
     parser.add_argument('--ip', type=str, help="filter by ip")
     parser.add_argument('--agent', type=str, help="filter by user_agent")
+    parser.add_argument('--status', type=str, help="filter by status code")
     parser.add_argument(
         '--show', nargs='+', help='Which type of TOP to show: "rps", "ip", "req", "agent", "status", "slow"')
     parser.add_argument('--count', '-с', dest='top_count',
