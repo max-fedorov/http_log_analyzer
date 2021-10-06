@@ -6,7 +6,7 @@ Requirements: Python 3.6+
 
 ```
 cd /opt
-git clone https://github.com/skam/http_log_analyzer.git
+git clone https://github.com/max-fedorov/http_log_analyzer.git
 cd http_log_analizer/
 chmod +x http_log_analyzer.py iptctl.py
 python3 -m venv env

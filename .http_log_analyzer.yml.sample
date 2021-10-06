@@ -6,6 +6,7 @@ show_rps: True
 show_ip: True
 show_request: True
 show_agent: False
+show_status: False
 show_slow_requests: False
 
 block_threshold_rps: 20

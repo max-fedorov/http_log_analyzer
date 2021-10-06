@@ -34,7 +34,8 @@ STAT = {'ip': {},
         'useragent': {},
         'rps_ip': {},
         'total': 0,
-        'request_time': {}}
+        'request_time': {},
+        'status': {}}
 DNS = {}
 
 log_format = re.compile(r'''(?P<ip>\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\s+'''
@@ -61,6 +62,7 @@ class Config():
         self.request = None
         self.ip = None
         self.agent = None
+        self.status = None
         self.resolve = True
         self.top_count = 10
         self.show_agent = False
@@ -68,6 +70,7 @@ class Config():
         self.show_ip = False
         self.show_slow_requests = False
         self.show_rps = False
+        self.show_status = False
         self.update_interval = 1
         self.rps_interval = 1
         self.collect_interval = 5  # clear collected data every 5min
@@ -301,6 +304,7 @@ def callback_parse_line(data, params):
                 STAT['total'] = 0
                 STAT['rps_ip'] = {}
                 STAT['request_time'] = {}
+                STAT['status'] = {}
                 params.max_rps = (0, '')
                 params.last_rps = 0
                 params.collect_interval_last_ts = dt
@@ -320,6 +324,8 @@ def callback_parse_line(data, params):
             if params.ip is not None and params.ip != ip:
                 continue
             if params.agent is not None and params.agent != useragent:
+                continue
+            if params.status is not None and params.status != status:
                 continue
             if params.runtime is None:
                 params.runtime = dt
@@ -352,6 +358,10 @@ def callback_parse_line(data, params):
                 STAT['useragent'][useragent] += 1
             else:
                 STAT['useragent'][useragent] = 1
+            if status in STAT['status']:
+                STAT['status'][status] += 1
+            else:
+                STAT['status'][status] = 1
             if float(request_time) > 0.000:
                 key = '{t}:@:{i}:@:{r}'.format(t=dt.timestamp(),
                                                i=ip, r=request)
@@ -444,8 +454,16 @@ def generate_stat(params):
         out += '-' * 50
         out += '\n'
         out += 'TOP {n} by USER_AGENT. (Uniq {c}/{t})\n'.format(
-            n=params.top_count, c=len(STAT['ip'].keys()), t=STAT['total'])
+            n=params.top_count, c=len(STAT['useragent'].keys()), t=STAT['total'])
         for k, v in sorted(STAT['useragent'].items(), key=lambda kv: kv[1], reverse=True)[:params.top_count]:
+            out += '{v}\t{k}\n'.format(k=k, v=v)
+
+    if params.show_status:
+        out += '-' * 50
+        out += '\n'
+        out += 'TOP {n} by STATUS. (Uniq {c}/{t})\n'.format(
+            n=params.top_count, c=len(STAT['status'].keys()), t=STAT['total'])
+        for k, v in sorted(STAT['status'].items(), key=lambda kv: kv[1], reverse=True)[:params.top_count]:
             out += '{v}\t{k}\n'.format(k=k, v=v)
 
     return out
@@ -494,7 +512,7 @@ if __name__ == '__main__':
     parser.add_argument('--ip', type=str, help="filter by ip")
     parser.add_argument('--agent', type=str, help="filter by user_agent")
     parser.add_argument(
-        '--show', nargs='+', help='Which type of TOP to show: "rps", "ip", "req", "agent", "slow"')
+        '--show', nargs='+', help='Which type of TOP to show: "rps", "ip", "req", "agent", "status", "slow"')
     parser.add_argument('--count', '-с', dest='top_count',
                         type=int, help="Number of TOP records")
     parser.add_argument(
@@ -529,6 +547,10 @@ if __name__ == '__main__':
             params.show_rps = True
         else:
             params.show_rps = False
+        if 'status' in args.show:
+            params.show_status = True
+        else:
+            params.show_status = False
 
     if args.start:
         try:
@@ -565,6 +587,8 @@ if __name__ == '__main__':
         params.ip = args.ip
     if args.agent:
         params.agent = args.agent
+    if args.status:
+        params.status = args.status
 
     debug('Starting')
     try:
