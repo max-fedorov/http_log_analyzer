@@ -122,6 +122,8 @@ class Config():
                 self.show_request = conf['show_request']
             if 'show_agent' in conf:
                 self.show_agent = conf['show_agent']
+            if 'show_status' in conf:
+                self.show_status = conf['show_status']
             if 'show_slow_requests' in conf:
                 self.show_slow_requests = conf['show_slow_requests']
 
