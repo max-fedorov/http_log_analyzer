@@ -39,14 +39,15 @@ STAT = {'ip': {},
 DNS = {}
 
 log_format = re.compile(r'''(?P<ip>\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\s+'''
-                        r'''-\s+-\s+'''
+                        r'''-\s+'''
+                        r'''(?P<user>.*?)\s+'''
                         r'''\[(?P<datetime>\d{2}\/[a-z]{3}\/\d{4}:\d{2}:\d{2}:\d{2}\s+(\+|\-)\d{4})\]\s+'''
                         r'''(\"(?P<request>.*?)\")\s+'''
                         r'''(?P<status>\d{3})\s+'''
                         r'''(?P<bytessent>\d+)\s+'''
                         r'''(\"(?P<referrer>.*?)\")\s+'''
                         r'''(\"(?P<useragent>.*?)\")\s+'''
-                        r'''(?P<upstream>\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\:\d{1,5})\s+'''
+                        r'''(?P<upstream>.*?)\s+'''
                         r'''(?P<upstream_response_time>.*?)\s+'''
                         r'''(?P<request_time>.*?)\s+'''
                         r'''(?P<host>.*?)$''', re.IGNORECASE | re.VERBOSE)
