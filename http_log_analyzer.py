@@ -22,7 +22,7 @@ import traceback
 import yaml
 import logging
 from logging.config import fileConfig
-from geoip import geo
+import geoip
 
 DAYS_INTERVAL = 1
 TIME_FORMAT = '%Y-%m-%d %H:%M:%S'
@@ -35,8 +35,10 @@ STAT = {'ip': {},
         'rps_ip': {},
         'total': 0,
         'request_time': {},
-        'status': {}}
+        'status': {},
+        'geo': {}}
 DNS = {}
+GEO = {}
 
 log_format = re.compile(r'''(?P<ip>\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\s+'''
                         r'''-\s+'''
@@ -64,6 +66,7 @@ class Config():
         self.ip = None
         self.agent = None
         self.status = None
+        self.geo = None
         self.resolve = True
         self.top_count = 10
         self.show_agent = False
@@ -72,6 +75,7 @@ class Config():
         self.show_slow_requests = False
         self.show_rps = False
         self.show_status = False
+        self.show_geo = False
         self.update_interval = 1
         self.rps_interval = 1
         self.collect_interval = 5  # clear collected data every 5min
@@ -127,6 +131,8 @@ class Config():
                 self.show_status = conf['show_status']
             if 'show_slow_requests' in conf:
                 self.show_slow_requests = conf['show_slow_requests']
+            if 'show_geo' in conf:
+                self.show_geo = conf['show_geo']
 
             if 'block_threshold_rps' in conf:
                 self.block_threshold_rps = conf['block_threshold_rps']
@@ -209,8 +215,6 @@ def block(params):
     for ip, count in sorted(STAT['rps_ip'].items(), key=lambda kv: kv[1], reverse=True):
         if ip in params.blocked_list:
             continue
-        if ip not in DNS:
-            DNS[ip] = socket.getfqdn(ip)
         block_ip = False
         if params.bad_dns_block_threshold_rps is not None and count >= params.bad_dns_block_threshold_rps:
             for d in params.bad_dns:
@@ -234,8 +238,6 @@ def block(params):
     for ip, count in sorted(STAT['ip'].items(), key=lambda kv: kv[1], reverse=True):
         if ip in params.blocked_list:
             continue
-        if ip not in DNS:
-            DNS[ip] = socket.getfqdn(ip)
         block_ip = False
         
         if not block_ip and count >= params.block_threshold_ip:
@@ -297,6 +299,15 @@ def callback_parse_line(data, params):
             datetimestring = datadict['datetime']
             dt = datetime.datetime.strptime(
                 datetimestring.split()[0], '%d/%b/%Y:%H:%M:%S')
+            if ip not in DNS:
+                DNS[ip] = socket.getfqdn(ip)
+            if ip not in GEO:
+                g = geoip.geo(ip)
+                if g is not None:
+                    GEO[ip] = g
+                else:
+                    GEO[ip] = '-'
+            geo = GEO[ip]
             if params.collect_interval_last_ts is None:
                 params.collect_interval_last_ts = dt
             if dt - params.collect_interval_last_ts >= datetime.timedelta(minutes=params.collect_interval):
@@ -308,6 +319,7 @@ def callback_parse_line(data, params):
                 STAT['rps_ip'] = {}
                 STAT['request_time'] = {}
                 STAT['status'] = {}
+                STAT['geo'] = {}
                 params.max_rps = (0, '')
                 params.last_rps = 0
                 params.collect_interval_last_ts = dt
@@ -369,6 +381,10 @@ def callback_parse_line(data, params):
                 key = '{t}:@:{i}:@:{r}'.format(t=dt.timestamp(),
                                                i=ip, r=request)
                 STAT['request_time'][key] = float(request_time)
+            if geo in STAT['geo']:
+                STAT['geo'][geo] += 1
+            else:
+                STAT['geo'][geo] = 1
 
     if params.block or params.block_demo:
         block(params)
@@ -415,13 +431,8 @@ def generate_stat(params):
         out += '\n'
         out += 'TOP {n} IP by RPS\n'.format(n=params.top_count)
         for ip, count in sorted(STAT['rps_ip'].items(), key=lambda kv: kv[1], reverse=True)[:params.top_count]:
-            geo_ip = geo(ip)
-            if geo_ip is None:
-                geo_ip = ''
             if params.resolve:
-                if ip not in DNS:
-                    DNS[ip] = socket.getfqdn(ip)
-                out += '{v}\t{k}\t({h})\t({g})\n'.format(k=ip, v=count, h=DNS[ip], g=geo_ip)
+                out += '{v}\t{k}\t({h})\t({g})\n'.format(k=ip, v=count, h=DNS[ip], g=GEO[ip])
             else:
                 out += '{v}\t{k}\n'.format(k=ip, v=count)
 
@@ -431,13 +442,8 @@ def generate_stat(params):
         out += 'TOP {n} by IP (Uniq {c}/{t})\n'.format(n=params.top_count,
                                                         c=len(STAT['ip'].keys()), t=STAT['total'])
         for k, v in sorted(STAT['ip'].items(), key=lambda kv: kv[1], reverse=True)[:params.top_count]:
-            geo_ip = geo(ip)
-            if geo_ip is None:
-                geo_ip = ''
             if params.resolve:
-                if k not in DNS:
-                    DNS[k] = socket.getfqdn(k)
-                out += '{v}\t{k}\t({h})\t({g})\n'.format(k=k, v=v, h=DNS[k], g=geo_ip)
+                out += '{v}\t{k}\t({h})\t({g})\n'.format(k=k, v=v, h=DNS[k], g=GEO[k])
             else:
                 out += '{v}\t{k}\n'.format(k=k, v=v)
 
@@ -472,6 +478,13 @@ def generate_stat(params):
         out += '\n'
         out += 'TOP {n} by STATUS\n'.format(n=params.top_count)
         for k, v in sorted(STAT['status'].items(), key=lambda kv: kv[1], reverse=True)[:params.top_count]:
+            out += '{v}\t{k}\n'.format(k=k, v=v)
+
+    if params.show_geo:
+        out += '-' * 50
+        out += '\n'
+        out += 'TOP {n} by GEO\n'.format(n=params.top_count)
+        for k, v in sorted(STAT['geo'].items(), key=lambda kv: kv[1], reverse=True)[:params.top_count]:
             out += '{v}\t{k}\n'.format(k=k, v=v)
 
     return out
@@ -520,8 +533,10 @@ if __name__ == '__main__':
     parser.add_argument('--ip', type=str, help="filter by ip")
     parser.add_argument('--agent', type=str, help="filter by user_agent")
     parser.add_argument('--status', type=str, help="filter by status code")
+    parser.add_argument('--geo', type=str, help="filter by country")
+
     parser.add_argument(
-        '--show', nargs='+', help='Which type of TOP to show: "rps", "ip", "req", "agent", "status", "slow"')
+        '--show', nargs='+', help='Which type of TOP to show: "rps", "ip", "req", "agent", "status", "slow", "geo"')
     parser.add_argument('--count', '-с', dest='top_count',
                         type=int, help="Number of TOP records")
     parser.add_argument(
@@ -560,6 +575,10 @@ if __name__ == '__main__':
             params.show_status = True
         else:
             params.show_status = False
+        if 'geo' in args.show:
+            params.show_geo = True
+        else:
+            params.show_geo = False
 
     if args.start:
         try:
@@ -598,8 +617,10 @@ if __name__ == '__main__':
         params.agent = args.agent
     if args.status:
         params.status = args.status
+    if args.geo:
+        params.geo = args.geo
 
-    debug('Starting')
+    #debug('Starting')
     try:
         if not params.block and not params.block_demo:
             curses.wrapper(main)
@@ -613,4 +634,4 @@ if __name__ == '__main__':
     finally:
         for l in params.stdscr_contents.splitlines():
             info(str(l).strip().lstrip('b').strip("'").strip())
-    debug('Shutting down')
+    #debug('Shutting down')

@@ -5,7 +5,8 @@ def geo(ip):
     try:
         q =geoip2.database.Reader('geoip.mmdb')
         geo = q.city(ip)
-        out = '{}/{}'.format(geo.country.name,geo.city.name)
+        #out = '{}/{}'.format(geo.country.name,geo.city.name)
+        out = geo.country.name
     except Exception:
         pass
     return out
