@@ -39,5 +39,5 @@ systemctl status http_log_analyzer
 ###### 5. Add cron task to unblock IPs when time is gone
 ```
 cat > /etc/cron.d/http_log_analizer_unblock
-* * * * * root /opt/http_log_analizer/iptctl.py > /dev/null 2>&1
+* * * * * root /opt/http_log_analyzer/iptctl.py > /dev/null 2>&1
 ```
