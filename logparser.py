@@ -4,7 +4,6 @@ import time
 import datetime
 import geoip2.database
 import socket
-import collections
 
 
 log_format = re.compile(r'''(?P<ip>\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\s+'''

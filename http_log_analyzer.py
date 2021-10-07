@@ -1,6 +1,5 @@
 #!/opt/http_log_analyzer/env/bin/python
 
-
 '''
 DESCR: parser for nginx access logs
 AUTOR: Max Fedorov (mail@skam.in)
@@ -8,20 +7,17 @@ AUTOR: Max Fedorov (mail@skam.in)
 
 import glob
 import gzip
-import re
 import os
 import time
 import sys
 import datetime
 import argparse
-import socket
 import curses
 from subprocess import Popen, PIPE
 import traceback
 import yaml
 import logging
 from logging.config import fileConfig
-import geoip
 from logparser import Log
 
 DAYS_INTERVAL = 1
