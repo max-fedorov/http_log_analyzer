@@ -29,7 +29,7 @@ vim .http_log_analyzer.yml
 
 ###### 4. Add systemd service
 ```
-ln -s /opt/http_log_analizer/http_log_analyzer.service /etc/systemd/system/http_log_analyzer.service
+ln -s /opt/http_log_analyzer/http_log_analyzer.service /etc/systemd/system/http_log_analyzer.service
 systemctl daemon-reload
 systemctl enable http_log_analyzer
 systemctl start http_log_analyzer
