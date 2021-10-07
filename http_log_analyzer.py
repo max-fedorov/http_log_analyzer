@@ -22,7 +22,7 @@ import traceback
 import yaml
 import logging
 from logging.config import fileConfig
-
+from geoip import geo
 
 DAYS_INTERVAL = 1
 TIME_FORMAT = '%Y-%m-%d %H:%M:%S'
@@ -413,32 +413,38 @@ def generate_stat(params):
     if params.show_rps:
         out += '-'*40
         out += '\n'
-        out += 'TOP {n} IP by RPS.\n'.format(n=params.top_count)
+        out += 'TOP {n} IP by RPS\n'.format(n=params.top_count)
         for ip, count in sorted(STAT['rps_ip'].items(), key=lambda kv: kv[1], reverse=True)[:params.top_count]:
+            geo_ip = geo(ip)
+            if geo_ip is None:
+                geo_ip = ''
             if params.resolve:
                 if ip not in DNS:
                     DNS[ip] = socket.getfqdn(ip)
-                out += '{v}\t{k}\t({h})\n'.format(k=ip, v=count, h=DNS[ip])
+                out += '{v}\t{k}\t({h})\t({g})\n'.format(k=ip, v=count, h=DNS[ip], g=geo_ip)
             else:
                 out += '{v}\t{k}\n'.format(k=ip, v=count)
 
     if params.show_ip:
         out += '-'*40
         out += '\n'
-        out += 'TOP {n} by IP. (Uniq {c}/{t})\n'.format(n=params.top_count,
+        out += 'TOP {n} by IP (Uniq {c}/{t})\n'.format(n=params.top_count,
                                                         c=len(STAT['ip'].keys()), t=STAT['total'])
         for k, v in sorted(STAT['ip'].items(), key=lambda kv: kv[1], reverse=True)[:params.top_count]:
+            geo_ip = geo(ip)
+            if geo_ip is None:
+                geo_ip = ''
             if params.resolve:
                 if k not in DNS:
                     DNS[k] = socket.getfqdn(k)
-                out += '{v}\t{k}\t({h})\n'.format(k=k, v=v, h=DNS[k])
+                out += '{v}\t{k}\t({h})\t({g})\n'.format(k=k, v=v, h=DNS[k], g=geo_ip)
             else:
                 out += '{v}\t{k}\n'.format(k=k, v=v)
 
     if params.show_request:
         out += '-'*50
         out += '\n'
-        out += 'TOP {n} by REQUEST. (Uniq {c}/{t})\n'.format(
+        out += 'TOP {n} by REQUEST (Uniq {c}/{t})\n'.format(
             n=params.top_count, c=len(STAT['request'].keys()), t=STAT['total'])
         for k, v in sorted(STAT['request'].items(), key=lambda kv: kv[1], reverse=True)[:params.top_count]:
             out += '{v}\t{k}\n'.format(k=k, v=v)
@@ -446,7 +452,7 @@ def generate_stat(params):
     if params.show_slow_requests:
         out += '-' * 50
         out += '\n'
-        out += 'TOP {n} by SLOW REQUESTS. (Uniq {c}/{t})\n'.format(
+        out += 'TOP {n} by SLOW REQUESTS (Uniq {c}/{t})\n'.format(
             n=params.top_count, c=len(STAT['request_time'].keys()), t=STAT['total'])
         for k, v in sorted(STAT['request_time'].items(), key=lambda kv: kv[1], reverse=True)[:params.top_count]:
             dt, ip, req = k.split(':@:')
@@ -456,7 +462,7 @@ def generate_stat(params):
     if params.show_agent:
         out += '-' * 50
         out += '\n'
-        out += 'TOP {n} by USER_AGENT. (Uniq {c}/{t})\n'.format(
+        out += 'TOP {n} by USER_AGENT (Uniq {c}/{t})\n'.format(
             n=params.top_count, c=len(STAT['useragent'].keys()), t=STAT['total'])
         for k, v in sorted(STAT['useragent'].items(), key=lambda kv: kv[1], reverse=True)[:params.top_count]:
             out += '{v}\t{k}\n'.format(k=k, v=v)
@@ -464,8 +470,7 @@ def generate_stat(params):
     if params.show_status:
         out += '-' * 50
         out += '\n'
-        out += 'TOP {n} by STATUS. (Uniq {c}/{t})\n'.format(
-            n=params.top_count, c=len(STAT['status'].keys()), t=STAT['total'])
+        out += 'TOP {n} by STATUS\n'.format(n=params.top_count)
         for k, v in sorted(STAT['status'].items(), key=lambda kv: kv[1], reverse=True)[:params.top_count]:
             out += '{v}\t{k}\n'.format(k=k, v=v)
 

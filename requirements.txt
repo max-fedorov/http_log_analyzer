@@ -1,2 +1,3 @@
-python-iptables
 PyYAML
+geoip2
+python-iptables
