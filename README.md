@@ -7,7 +7,7 @@ Requirements: Python 3.6+
 ```
 cd /opt
 git clone https://github.com/max-fedorov/http_log_analyzer.git
-cd http_log_analizer/
+cd http_log_analyzer/
 chmod +x http_log_analyzer.py iptctl.py
 python3 -m venv env
 source env/bin/activate
@@ -25,7 +25,7 @@ vim .http_log_analyzer.yml
 3. set whitelist_ip
 
 ###### 3. Test run
-```/opt/http_log_analizer/http_log_analizer.py```
+```/opt/http_log_analyzer/http_log_analyzer.py```
 
 ###### 4. Add systemd service
 ```
@@ -38,6 +38,6 @@ systemctl status http_log_analyzer
 
 ###### 5. Add cron task to unblock IPs when time is gone
 ```
-cat > /etc/cron.d/http_log_analizer_unblock
+cat > /etc/cron.d/http_log_analyzer_unblock
 * * * * * root /opt/http_log_analyzer/iptctl.py > /dev/null 2>&1
 ```
