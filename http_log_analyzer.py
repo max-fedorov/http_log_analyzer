@@ -244,10 +244,8 @@ def block(request):
 
 
 def exec_block(ip, count, block_type, params):
-    now = str(datetime.datetime.now()).split('.')[0]
-    #debug(generate_stat())
-    info('{n} LA: {la} BLOCK by {t}:\t{v}\t{k}\t{g}\t({h})'.format(la=round(os.getloadavg()[0],3),
-        k=ip, v=count, h=params.access_log.db_dns[ip], n=now, t=block_type, g=params.access_log.db_geo[ip]))
+    info('LA: {la} BLOCK by {t}:\t{v}\t{k}\t{g}\t({h})'.format(la=round(os.getloadavg()[0],3),
+        k=ip, v=count, h=params.access_log.db_dns[ip], t=block_type, g=params.access_log.db_geo[ip]))
     params.blocked_list.append(ip)
 
     if not params.block_demo:
