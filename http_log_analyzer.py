@@ -93,6 +93,7 @@ class Config():
         self.block = False
         self.block_demo = False
         self.blocked_list = []
+        self.la_threshold = 0
         self.block_threshold_rps = 5
         self.block_threshold_ip = 300
         self.bad_user_agent_block_threshold_rps = None
@@ -109,7 +110,13 @@ class Config():
 
     def parse(self, path):
         with open(path, 'r') as stream:
-            conf = yaml.safe_load(stream)
+            try:
+                conf = yaml.safe_load(stream)
+            except yaml.scanner.ScannerError as er:
+                error('Fail to parse config file "{}"'.format(path))
+                error(er)
+                quit(0)
+
             if 'tailf' in conf:
                 self.tailf = conf['tailf']
             if 'path' in conf:
@@ -299,15 +306,6 @@ def callback_parse_line(data, params):
             datetimestring = datadict['datetime']
             dt = datetime.datetime.strptime(
                 datetimestring.split()[0], '%d/%b/%Y:%H:%M:%S')
-            if ip not in DNS:
-                DNS[ip] = socket.getfqdn(ip)
-            if ip not in GEO:
-                g = geoip.geo(ip)
-                if g is not None:
-                    GEO[ip] = g
-                else:
-                    GEO[ip] = '-'
-            geo = GEO[ip]
             if params.collect_interval_last_ts is None:
                 params.collect_interval_last_ts = dt
             if dt - params.collect_interval_last_ts >= datetime.timedelta(minutes=params.collect_interval):
@@ -359,6 +357,16 @@ def callback_parse_line(data, params):
             params.close_ts = dt
             if params.last_rps > len(params.max_rps):
                 params.max_rps = params.last_logs
+
+            if ip not in DNS:
+                DNS[ip] = socket.getfqdn(ip)
+            if ip not in GEO:
+                g = geoip.geo(ip)
+                if g is not None:
+                    GEO[ip] = g
+                else:
+                    GEO[ip] = '-'
+            geo = GEO[ip]
 
             STAT['total'] += 1
             if ip in STAT['ip']:
@@ -432,7 +440,7 @@ def generate_stat(params):
         out += 'TOP {n} IP by RPS\n'.format(n=params.top_count)
         for ip, count in sorted(STAT['rps_ip'].items(), key=lambda kv: kv[1], reverse=True)[:params.top_count]:
             if params.resolve:
-                out += '{v}\t{k}\t({h})\t({g})\n'.format(k=ip, v=count, h=DNS[ip], g=GEO[ip])
+                out += '{v}\t{k}\t({g})\t({h})\n'.format(k=ip, v=count, h=DNS[ip], g=GEO[ip])
             else:
                 out += '{v}\t{k}\n'.format(k=ip, v=count)
 
@@ -443,7 +451,7 @@ def generate_stat(params):
                                                         c=len(STAT['ip'].keys()), t=STAT['total'])
         for k, v in sorted(STAT['ip'].items(), key=lambda kv: kv[1], reverse=True)[:params.top_count]:
             if params.resolve:
-                out += '{v}\t{k}\t({h})\t({g})\n'.format(k=k, v=v, h=DNS[k], g=GEO[k])
+                out += '{v}\t{k}\t({g})\t({h})\n'.format(k=k, v=v, h=DNS[k], g=GEO[k])
             else:
                 out += '{v}\t{k}\n'.format(k=k, v=v)
 
@@ -537,8 +545,7 @@ if __name__ == '__main__':
 
     parser.add_argument(
         '--show', nargs='+', help='Which type of TOP to show: "rps", "ip", "req", "agent", "status", "slow", "geo"')
-    parser.add_argument('--count', '-с', dest='top_count',
-                        type=int, help="Number of TOP records")
+    parser.add_argument('--count', dest='top_count', type=int, help="Number of TOP records")
     parser.add_argument(
         '--block', help="Block top IPs in iptables", action="store_true")
     parser.add_argument('--block-demo', dest="block_demo",

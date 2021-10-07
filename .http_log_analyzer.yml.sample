@@ -7,14 +7,22 @@ show_ip: True
 show_request: True
 show_agent: False
 show_status: False
+show_geo: False
 show_slow_requests: False
 
+
+la_threshold: 0
 block_threshold_rps: 20
 block_threshold_ip: 4000
 
 #bad_user_agent:
 #  - "AhrefsBot"
 #  - "NetpeakSpiderBot"
+#  - "MJ12bot"
+#  - "Barkrowler"
+#  - "PetalBot"
+#  - "DotBot"
+#  - "4seo-checker-bot"
 
 #bad_dns_block_threshold_rps: 5
 #bad_dns:
