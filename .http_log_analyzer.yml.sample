@@ -10,11 +10,11 @@ show_status: False
 show_geo: False
 show_slow_requests: False
 
-
 la_threshold: 0
 block_threshold_rps: 20
 block_threshold_ip: 4000
 
+#bad_user_agent_block_threshold_rps: 2
 #bad_user_agent:
 #  - "AhrefsBot"
 #  - "NetpeakSpiderBot"
@@ -23,9 +23,11 @@ block_threshold_ip: 4000
 #  - "PetalBot"
 #  - "DotBot"
 #  - "4seo-checker-bot"
+#  - "YandexBot"
 
-#bad_dns_block_threshold_rps: 5
+#bad_dns_block_threshold_rps: 2
 #bad_dns:
+#  - "tor"
 #  - ".ahrefs.com"
 #  - ".spider.yandex.com"
 #  - ".search.msn.com"
@@ -37,7 +39,9 @@ whitelist_ip:
 whitelist_dns:
   - "test.dontblock.com"
 
-#whitelist_requests: ['.webp']
+#whitelist_requests:
+#  - "/admin/"
+#  - "/crm"
 
 block_cmd: "./iptctl.py --time 60 --add {ip}"
 

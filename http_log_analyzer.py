@@ -15,7 +15,6 @@ import sys
 import datetime
 import argparse
 import socket
-import collections
 import curses
 from subprocess import Popen, PIPE
 import traceback
@@ -23,40 +22,16 @@ import yaml
 import logging
 from logging.config import fileConfig
 import geoip
+from logparser import Log
 
 DAYS_INTERVAL = 1
 TIME_FORMAT = '%Y-%m-%d %H:%M:%S'
 TIMEZONE_OFFSET = 3.0  # Moscow Time (UTC+03:00)
 
-STAT = {'ip': {},
-        'request': {},
-        'host': {},
-        'useragent': {},
-        'rps_ip': {},
-        'total': 0,
-        'request_time': {},
-        'status': {},
-        'geo': {}}
-DNS = {}
-GEO = {}
-
-log_format = re.compile(r'''(?P<ip>\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\s+'''
-                        r'''-\s+'''
-                        r'''(?P<user>.*?)\s+'''
-                        r'''\[(?P<datetime>\d{2}\/[a-z]{3}\/\d{4}:\d{2}:\d{2}:\d{2}\s+(\+|\-)\d{4})\]\s+'''
-                        r'''(\"(?P<request>.*?)\")\s+'''
-                        r'''(?P<status>\d{3})\s+'''
-                        r'''(?P<bytessent>\d+)\s+'''
-                        r'''(\"(?P<referrer>.*?)\")\s+'''
-                        r'''(\"(?P<useragent>.*?)\")\s+'''
-                        r'''(?P<upstream>.*?)\s+'''
-                        r'''(?P<upstream_response_time>.*?)\s+'''
-                        r'''(?P<request_time>.*?)\s+'''
-                        r'''(?P<host>.*?)$''', re.IGNORECASE | re.VERBOSE)
-
 
 class Config():
     def __init__(self, conf_path=None):
+        self.access_log = Log(self)
         self.tailf = False
         self.path = None
         self.log = None
@@ -80,7 +55,6 @@ class Config():
         self.rps_interval = 1
         self.collect_interval = 5  # clear collected data every 5min
         self.collect_interval_last_ts = None
-        self.logs = []
         self.runtime = None
         self.last_logs = []
         self.last_rps = 0
@@ -119,6 +93,8 @@ class Config():
 
             if 'tailf' in conf:
                 self.tailf = conf['tailf']
+            if 'resolve' in conf:
+                self.resolve = conf['resolve']
             if 'path' in conf:
                 self.path = conf['path']
             if 'collect_interval' in conf:
@@ -141,6 +117,8 @@ class Config():
             if 'show_geo' in conf:
                 self.show_geo = conf['show_geo']
 
+            if 'la_threshold' in conf:
+                self.la_threshold = conf['la_threshold']
             if 'block_threshold_rps' in conf:
                 self.block_threshold_rps = conf['block_threshold_rps']
             if 'block_threshold_ip' in conf:
@@ -208,64 +186,72 @@ def get_files(path):
     return paths
 
 
-def calc_rps_top(logs):
-    for ip, count in collections.Counter(logs).most_common():
-        if ip in STAT['rps_ip']:
-            if count > STAT['rps_ip'][ip]:
-                STAT['rps_ip'][ip] = count
-        else:
-            STAT['rps_ip'][ip] = count
-
-
-def block(params):
-    # block by rps count
-    for ip, count in sorted(STAT['rps_ip'].items(), key=lambda kv: kv[1], reverse=True):
+def block(request):
+    if params.la_threshold > round(os.getloadavg()[0],3): return
+    stat = [(params.access_log.rps[id].name, len(
+            params.access_log.rps[id].requests)) for id in params.access_log.rps]
+    for ip, count in sorted(stat, key=lambda kv: kv[1], reverse=True):
         if ip in params.blocked_list:
             continue
+        cont = False
+        for d in params.whitelist_dns:
+            if d in params.access_log.db_dns[ip]:
+                cont = True
+                break
+        if cont:
+            continue
         block_ip = False
+        # block by bad dns
         if params.bad_dns_block_threshold_rps is not None and count >= params.bad_dns_block_threshold_rps:
             for d in params.bad_dns:
-                if d in DNS[ip]:
+                if d in params.access_log.db_dns[ip]:
                     block_ip = True
                     break
-        if not block_ip and count >= params.block_threshold_rps:
-            cont = False
-            for d in params.whitelist_dns:
-                if d in DNS[ip]:
-                    cont = True
-                    break
-            if cont:
+            if block_ip:
+                exec_block(ip, count, 'bad_dns', params)
+                del params.access_log.rps[ip]
                 continue
-
-        if block_ip:
+        # block by bad user agent
+        if params.bad_user_agent_block_threshold_rps is not None and count >= params.bad_user_agent_block_threshold_rps:
+            num = 0
+            for r in params.access_log.rps[ip].requests:
+                req = params.access_log.all_requests[r]
+                ua = req.user_agent
+                for a in params.bad_user_agent:
+                    if a in ua:
+                        num += 1
+            if num >= params.bad_user_agent_block_threshold_rps:
+                exec_block(ip, count, 'bad_user_agent', params)
+                del params.access_log.rps[ip]
+                continue
+        if count >= params.block_threshold_rps:
             exec_block(ip, count, 'rps', params)
-            del STAT['rps_ip'][ip]
+            del params.access_log.rps[ip]
 
     # block by ip count
-    for ip, count in sorted(STAT['ip'].items(), key=lambda kv: kv[1], reverse=True):
+    stat = [(params.access_log.ip[id].name, len(
+            params.access_log.ip[id].requests)) for id in params.access_log.ip]
+    for ip, count in sorted(stat, key=lambda kv: kv[1], reverse=True):
         if ip in params.blocked_list:
             continue
+        cont = False
+        for d in params.whitelist_dns:
+            if d in params.access_log.db_dns[ip]:
+                cont = True
+                break
+        if cont:
+            continue
         block_ip = False
-        
         if not block_ip and count >= params.block_threshold_ip:
-            cont = False
-            for d in params.whitelist_dns:
-                if d in DNS[ip]:
-                    cont = True
-                    break
-            if cont:
-                continue
-
-        if block_ip:
             exec_block(ip, count, 'ip', params)
-            del STAT['ip'][ip]
+            del params.access_log.ip[ip]
 
 
 def exec_block(ip, count, block_type, params):
     now = str(datetime.datetime.now()).split('.')[0]
-    debug(generate_stat(params))
-    info('{n} BLOCK by {t}: {v}\t{k}\t({h})'.format(
-        k=ip, v=count, h=DNS[ip], n=now, t=block_type))
+    #debug(generate_stat())
+    info('{n} LA: {la} BLOCK by {t}:\t{v}\t{k}\t{g}\t({h})'.format(la=round(os.getloadavg()[0],3),
+        k=ip, v=count, h=params.access_log.db_dns[ip], n=now, t=block_type, g=params.access_log.db_geo[ip]))
     params.blocked_list.append(ip)
 
     if not params.block_demo:
@@ -275,7 +261,7 @@ def exec_block(ip, count, block_type, params):
         debug(r)
 
 
-def parse(params):
+def parse():
     log_file = params.log
     if log_file.endswith(".gz"):
         logs = gzip.open(log_file).read()
@@ -291,118 +277,17 @@ def parse(params):
 
 
 def callback_parse_line(data, params):
-    for l in data.splitlines():
-        data = re.search(log_format, l)
-        if data:
-            datadict = data.groupdict()
-            ip = datadict['ip']
-            request = datadict['request']
-            bytessent = datadict['bytessent']
-            referrer = datadict['referrer']
-            useragent = datadict['useragent']
-            status = datadict['status']
-            host = datadict['host']
-            request_time = datadict['request_time']
-            datetimestring = datadict['datetime']
-            dt = datetime.datetime.strptime(
-                datetimestring.split()[0], '%d/%b/%Y:%H:%M:%S')
-            if params.collect_interval_last_ts is None:
-                params.collect_interval_last_ts = dt
-            if dt - params.collect_interval_last_ts >= datetime.timedelta(minutes=params.collect_interval):
-                params.runtime = None
-                STAT['ip'] = {}
-                STAT['request'] = {}
-                STAT['useragent'] = {}
-                STAT['total'] = 0
-                STAT['rps_ip'] = {}
-                STAT['request_time'] = {}
-                STAT['status'] = {}
-                STAT['geo'] = {}
-                params.max_rps = (0, '')
-                params.last_rps = 0
-                params.collect_interval_last_ts = dt
-
-            cont = False
-            for req in params.whitelist_requests:
-                if req in request:
-                    cont = True
-                    break
-            if cont:
-                continue
-            if params.start is not None and params.end is not None:
-                if not (params.start <= dt <= params.end):
-                    continue
-            if params.request is not None and params.request != request:
-                continue
-            if params.ip is not None and params.ip != ip:
-                continue
-            if params.agent is not None and params.agent != useragent:
-                continue
-            if params.status is not None and params.status != status:
-                continue
-            if params.runtime is None:
-                params.runtime = dt
-                params.logs = [ip]
-            elif params.runtime is not None and (dt - params.runtime).total_seconds() < params.rps_interval:
-                params.logs.append(ip)
-            elif params.runtime is not None and (dt - params.runtime).total_seconds() >= params.rps_interval:
-                params.last_rps = len(params.logs)
-                params.last_logs = params.logs
-                calc_rps_top(params.logs)
-                params.logs = [ip]
-                params.runtime = dt
-
-            if params.start_ts is None:
-                params.start_ts = dt
-            params.close_ts = dt
-            if params.last_rps > len(params.max_rps):
-                params.max_rps = params.last_logs
-
-            if ip not in DNS:
-                DNS[ip] = socket.getfqdn(ip)
-            if ip not in GEO:
-                g = geoip.geo(ip)
-                if g is not None:
-                    GEO[ip] = g
-                else:
-                    GEO[ip] = '-'
-            geo = GEO[ip]
-
-            STAT['total'] += 1
-            if ip in STAT['ip']:
-                STAT['ip'][ip] += 1
-            else:
-                STAT['ip'][ip] = 1
-            if request in STAT['request']:
-                STAT['request'][request] += 1
-            else:
-                STAT['request'][request] = 1
-            if useragent in STAT['useragent']:
-                STAT['useragent'][useragent] += 1
-            else:
-                STAT['useragent'][useragent] = 1
-            if status in STAT['status']:
-                STAT['status'][status] += 1
-            else:
-                STAT['status'][status] = 1
-            if float(request_time) > 0.000:
-                key = '{t}:@:{i}:@:{r}'.format(t=dt.timestamp(),
-                                               i=ip, r=request)
-                STAT['request_time'][key] = float(request_time)
-            if geo in STAT['geo']:
-                STAT['geo'][geo] += 1
-            else:
-                STAT['geo'][geo] = 1
-
+    new_requests = params.access_log.parse(data)
     if params.block or params.block_demo:
-        block(params)
+        for req in new_requests:
+            block(req)
     else:
         if params.start_ts is not None and params.close_ts is not None:
-            show_stat(params)
+            show_stat()
 
 
-def show_stat(params):
-    stat = generate_stat(params)
+def show_stat():
+    stat = generate_stat()
     height, width = params.scr.getmaxyx()
     stdscr = params.stdscr
     stdscr.clear()
@@ -413,7 +298,7 @@ def show_stat(params):
     params.stdscr_contents = stat
 
 
-def generate_stat(params):
+def generate_stat():
     out = ''
     if params.ip is not None:
         out += 'Filtered by IP: {}\n'.format(params.ip)
@@ -426,74 +311,75 @@ def generate_stat(params):
         'RPS last: {rs} max: {rm} || '\
         'CPU LA: {la} || '\
         'Run time: {rt} || '\
-        'Cur time: {dt}\n\n'.format(t=STAT['total'],
+        'Cur time: {dt}\n\n'.format(t=params.access_log.total,
                                     rs=params.last_rps,
                                     rt=run_time,
                                     rm=len(params.max_rps),
                                     dt=str(datetime.datetime.now()).split(
                                         '.')[0],
                                     la=os.getloadavg())
-
     if params.show_rps:
-        out += '-'*40
-        out += '\n'
-        out += 'TOP {n} IP by RPS\n'.format(n=params.top_count)
-        for ip, count in sorted(STAT['rps_ip'].items(), key=lambda kv: kv[1], reverse=True)[:params.top_count]:
+        out += '-'*40 + '\nTOP {n} IP by RPS\n\n'.format(n=params.top_count)
+        stat = [(params.access_log.rps[id].name, len(
+            params.access_log.rps[id].requests)) for id in params.access_log.rps]
+        for name, count in sorted(stat, key=lambda kv: kv[1], reverse=True)[:params.top_count]:
             if params.resolve:
-                out += '{v}\t{k}\t({g})\t({h})\n'.format(k=ip, v=count, h=DNS[ip], g=GEO[ip])
+                out += '{v}\t{k}\t({g})\t({h})\n'.format(k=name, v=count,
+                                                         h=params.access_log.db_dns[name],
+                                                         g=params.access_log.db_geo[name])
             else:
-                out += '{v}\t{k}\n'.format(k=ip, v=count)
+                out += '{v}\t{k}\n'.format(k=name, v=count)
 
     if params.show_ip:
-        out += '-'*40
-        out += '\n'
-        out += 'TOP {n} by IP (Uniq {c}/{t})\n'.format(n=params.top_count,
-                                                        c=len(STAT['ip'].keys()), t=STAT['total'])
-        for k, v in sorted(STAT['ip'].items(), key=lambda kv: kv[1], reverse=True)[:params.top_count]:
+        out += '-'*40 + '\nTOP {n} by IP (Uniq {c}/{t})\n\n'.format(n=params.top_count,
+                                                       c=len(params.access_log.ip), t=params.access_log.total)
+        stat = [(params.access_log.ip[id].name, len(
+            params.access_log.ip[id].requests)) for id in params.access_log.ip]
+        for name, count in sorted(stat, key=lambda kv: kv[1], reverse=True)[:params.top_count]:
             if params.resolve:
-                out += '{v}\t{k}\t({g})\t({h})\n'.format(k=k, v=v, h=DNS[k], g=GEO[k])
+                out += '{v}\t{k}\t({g})\t({h})\n'.format(k=name, v=count,
+                                                         h=params.access_log.db_dns[name],
+                                                         g=params.access_log.db_geo[name])
             else:
-                out += '{v}\t{k}\n'.format(k=k, v=v)
+                out += '{v}\t{k}\n'.format(k=name, v=count)
 
     if params.show_request:
-        out += '-'*50
-        out += '\n'
-        out += 'TOP {n} by REQUEST (Uniq {c}/{t})\n'.format(
-            n=params.top_count, c=len(STAT['request'].keys()), t=STAT['total'])
-        for k, v in sorted(STAT['request'].items(), key=lambda kv: kv[1], reverse=True)[:params.top_count]:
-            out += '{v}\t{k}\n'.format(k=k, v=v)
-
+        out += '-'*40 + '\nTOP {n} by REQUEST (Uniq {c}/{t})\n\n'.format(
+            n=params.top_count, c=len(params.access_log.request_url), t=params.access_log.total)
+        stat = [(params.access_log.request_url[id].name, len(
+            params.access_log.request_url[id].requests)) for id in params.access_log.request_url]
+        for name, count in sorted(stat, key=lambda kv: kv[1], reverse=True)[:params.top_count]:
+            out += '{v}\t{k}\n'.format(k=name, v=count)
+    
     if params.show_slow_requests:
-        out += '-' * 50
-        out += '\n'
-        out += 'TOP {n} by SLOW REQUESTS (Uniq {c}/{t})\n'.format(
-            n=params.top_count, c=len(STAT['request_time'].keys()), t=STAT['total'])
-        for k, v in sorted(STAT['request_time'].items(), key=lambda kv: kv[1], reverse=True)[:params.top_count]:
-            dt, ip, req = k.split(':@:')
-            out += '{v}\t{t}\t{i}\t{r}\n'.format(
-                v=v, t=datetime.datetime.fromtimestamp(float(dt)), i=ip, r=req)
+        out += '-'*40 + '\nTOP {n} by SLOW REQUESTS (Uniq {c}/{t})\n\n'.format(
+            n=params.top_count, c=len(params.access_log.slow_request), t=params.access_log.total)
+        stat = [(params.access_log.slow_request[id].name,
+            params.access_log.slow_request[id].time) for id in params.access_log.slow_request]
+        for name, count in sorted(stat, key=lambda kv: kv[1], reverse=True)[:params.top_count]:
+            out += '{v}\t{k}\n'.format(k=name, v=count)
 
     if params.show_agent:
-        out += '-' * 50
-        out += '\n'
-        out += 'TOP {n} by USER_AGENT (Uniq {c}/{t})\n'.format(
-            n=params.top_count, c=len(STAT['useragent'].keys()), t=STAT['total'])
-        for k, v in sorted(STAT['useragent'].items(), key=lambda kv: kv[1], reverse=True)[:params.top_count]:
-            out += '{v}\t{k}\n'.format(k=k, v=v)
+        out += '-'*40 + '\nTOP {n} by USER_AGENT (Uniq {c}/{t})\n\n'.format(
+             n=params.top_count, c=len(params.access_log.user_agent), t=params.access_log.total)
+        stat = [(params.access_log.user_agent[id].name, len(
+            params.access_log.user_agent[id].requests)) for id in params.access_log.user_agent]
+        for name, count in sorted(stat, key=lambda kv: kv[1], reverse=True)[:params.top_count]:
+            out += '{v}\t{k}\n'.format(k=name, v=count)
 
     if params.show_status:
-        out += '-' * 50
-        out += '\n'
-        out += 'TOP {n} by STATUS\n'.format(n=params.top_count)
-        for k, v in sorted(STAT['status'].items(), key=lambda kv: kv[1], reverse=True)[:params.top_count]:
-            out += '{v}\t{k}\n'.format(k=k, v=v)
+        out += '-'*40 + '\nTOP {n} by STATUS\n\n'.format(n=params.top_count)
+        stat = [(params.access_log.status_code[id].name, len(
+            params.access_log.status_code[id].requests)) for id in params.access_log.status_code]
+        for name, count in sorted(stat, key=lambda kv: kv[1], reverse=True)[:params.top_count]:
+            out += '{v}\t{k}\n'.format(k=name, v=count)
 
     if params.show_geo:
-        out += '-' * 50
-        out += '\n'
-        out += 'TOP {n} by GEO\n'.format(n=params.top_count)
-        for k, v in sorted(STAT['geo'].items(), key=lambda kv: kv[1], reverse=True)[:params.top_count]:
-            out += '{v}\t{k}\n'.format(k=k, v=v)
+        out += '-'*40 + '\nTOP {n} by GEO\n\n'.format(n=params.top_count)
+        stat = [(params.access_log.geo[id].name, len(
+            params.access_log.geo[id].requests)) for id in params.access_log.geo]
+        for name, count in sorted(stat, key=lambda kv: kv[1], reverse=True)[:params.top_count]:
+            out += '{v}\t{k}\n'.format(k=name, v=count)
 
     return out
 
@@ -514,7 +400,7 @@ def main(scr=None):
         quit(0)
     for f in get_files(params.path):
         params.log = f
-        parse(params)
+        parse()
 
 
 if __name__ == '__main__':
@@ -545,7 +431,8 @@ if __name__ == '__main__':
 
     parser.add_argument(
         '--show', nargs='+', help='Which type of TOP to show: "rps", "ip", "req", "agent", "status", "slow", "geo"')
-    parser.add_argument('--count', dest='top_count', type=int, help="Number of TOP records")
+    parser.add_argument('--count', dest='top_count',
+                        type=int, help="Number of TOP records")
     parser.add_argument(
         '--block', help="Block top IPs in iptables", action="store_true")
     parser.add_argument('--block-demo', dest="block_demo",
@@ -627,7 +514,6 @@ if __name__ == '__main__':
     if args.geo:
         params.geo = args.geo
 
-    #debug('Starting')
     try:
         if not params.block and not params.block_demo:
             curses.wrapper(main)
@@ -641,4 +527,3 @@ if __name__ == '__main__':
     finally:
         for l in params.stdscr_contents.splitlines():
             info(str(l).strip().lstrip('b').strip("'").strip())
-    #debug('Shutting down')
