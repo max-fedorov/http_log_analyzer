@@ -27,9 +27,10 @@ class Config():
 
 def create_rule(params):
     ip = params.ip
-    if ip in WHITE_LIST:
-        print('SKIPPED: {} in whitelist'.format(ip))
-        return None
+    for net in WHITE_LIST:
+        if ipaddress.ip_address(ip) in ipaddress.ip_network(net):
+            print('SKIPPED: {} in whitelist'.format(ip))
+            return None
     print('ADD block for {}'.format(ip))
     rule = iptc.Rule()
     rule.src = ip

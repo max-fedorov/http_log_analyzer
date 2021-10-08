@@ -16,7 +16,9 @@ import curses
 from subprocess import Popen, PIPE
 import traceback
 import yaml
+import ipaddress
 import logging
+import netifaces
 from logging.config import fileConfig
 from logparser import Log
 
@@ -68,10 +70,11 @@ class Config():
         self.block_threshold_ip = 300
         self.bad_user_agent_block_threshold_rps = None
         self.bad_dns_block_threshold_rps = None
-        self.whitelist_requests = []
         self.bad_dns = []
         self.bad_user_agent = []
+        self.whitelist_requests = []
         self.whitelist_dns = []
+        self.whitelist_ip = ['127.0.0.1']
         self.block_cmd = '''./iptctl.py --time 60 --add {ip}'''
         if os.path.exists(conf_path):
             self.parse(conf_path)
@@ -132,6 +135,8 @@ class Config():
                 self.whitelist_dns = conf['whitelist_dns']
             if 'whitelist_requests' in conf:
                 self.whitelist_requests = conf['whitelist_requests']
+            if 'whitelist_ip' in conf:
+                self.whitelist_ip = conf['whitelist_ip']
 
 
 class Tail(object):
@@ -183,13 +188,18 @@ def get_files(path):
 
 
 def block(request):
-    if params.la_threshold > round(os.getloadavg()[0],3): return
+    if params.la_threshold > round(os.getloadavg()[0], 3):
+        return
     stat = [(params.access_log.rps[id].name, len(
             params.access_log.rps[id].requests)) for id in params.access_log.rps]
     for ip, count in sorted(stat, key=lambda kv: kv[1], reverse=True):
         if ip in params.blocked_list:
             continue
         cont = False
+        for net in params.whitelist_ip:
+            if ipaddress.ip_address(ip) in ipaddress.ip_network(net):
+                cont = True
+                break
         for d in params.whitelist_dns:
             if d in params.access_log.db_dns[ip]:
                 cont = True
@@ -231,6 +241,10 @@ def block(request):
         if ip in params.blocked_list:
             continue
         cont = False
+        for net in params.whitelist_ip:
+            if ipaddress.ip_address(ip) in ipaddress.ip_network(net):
+                cont = True
+                break
         for d in params.whitelist_dns:
             if d in params.access_log.db_dns[ip]:
                 cont = True
@@ -244,8 +258,8 @@ def block(request):
 
 
 def exec_block(ip, count, block_type, params):
-    info('LA: {la} BLOCK by {t}:\t{v}\t{k}\t{g}\t({h})'.format(la=round(os.getloadavg()[0],3),
-        k=ip, v=count, h=params.access_log.db_dns[ip], t=block_type, g=params.access_log.db_geo[ip]))
+    info('LA: {la} BLOCK by {t}:\t{v}\t{k}\t{g}\t({h})'.format(la=round(os.getloadavg()[0], 3),
+                                                               k=ip, v=count, h=params.access_log.db_dns[ip], t=block_type, g=params.access_log.db_geo[ip]))
     params.blocked_list.append(ip)
 
     if not params.block_demo:
@@ -326,7 +340,7 @@ def generate_stat():
 
     if params.show_ip:
         out += '-'*40 + '\nTOP {n} by IP (Uniq {c}/{t})\n\n'.format(n=params.top_count,
-                                                       c=len(params.access_log.ip), t=params.access_log.total)
+                                                                    c=len(params.access_log.ip), t=params.access_log.total)
         stat = [(params.access_log.ip[id].name, len(
             params.access_log.ip[id].requests)) for id in params.access_log.ip]
         for name, count in sorted(stat, key=lambda kv: kv[1], reverse=True)[:params.top_count]:
@@ -344,18 +358,18 @@ def generate_stat():
             params.access_log.request_url[id].requests)) for id in params.access_log.request_url]
         for name, count in sorted(stat, key=lambda kv: kv[1], reverse=True)[:params.top_count]:
             out += '{v}\t{k}\n'.format(k=name, v=count)
-    
+
     if params.show_slow_requests:
         out += '-'*40 + '\nTOP {n} by SLOW REQUESTS (Uniq {c}/{t})\n\n'.format(
             n=params.top_count, c=len(params.access_log.slow_request), t=params.access_log.total)
         stat = [(params.access_log.slow_request[id].name,
-            params.access_log.slow_request[id].time) for id in params.access_log.slow_request]
+                 params.access_log.slow_request[id].time) for id in params.access_log.slow_request]
         for name, count in sorted(stat, key=lambda kv: kv[1], reverse=True)[:params.top_count]:
             out += '{v}\t{k}\n'.format(k=name, v=count)
 
     if params.show_agent:
         out += '-'*40 + '\nTOP {n} by USER_AGENT (Uniq {c}/{t})\n\n'.format(
-             n=params.top_count, c=len(params.access_log.user_agent), t=params.access_log.total)
+            n=params.top_count, c=len(params.access_log.user_agent), t=params.access_log.total)
         stat = [(params.access_log.user_agent[id].name, len(
             params.access_log.user_agent[id].requests)) for id in params.access_log.user_agent]
         for name, count in sorted(stat, key=lambda kv: kv[1], reverse=True)[:params.top_count]:
@@ -378,6 +392,12 @@ def generate_stat():
     return out
 
 
+def get_local_ips():
+    ips = [netifaces.ifaddresses(ifaceName).setdefault(netifaces.AF_INET)[0]['addr']
+     for ifaceName in netifaces.interfaces() if netifaces.ifaddresses(ifaceName).setdefault(netifaces.AF_INET)]
+    return ips
+
+
 def main(scr=None):
     if not params.block and not params.block_demo:
         scr.keypad(True)
@@ -389,9 +409,13 @@ def main(scr=None):
         params.stdscr = stdscr
         params.scr = scr
 
+    local_ips = get_local_ips()
+    if len(local_ips):
+        params.whitelist_ip.extend(local_ips)
     if params.path is None:
         error('Bad value for argument --path : "{}"'.format(params.path))
         quit(0)
+    debug('WHITELIST_IPS: {}'.format(params.whitelist_ip))
     for f in get_files(params.path):
         params.log = f
         parse()

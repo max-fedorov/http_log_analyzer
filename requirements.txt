@@ -1,3 +1,4 @@
 PyYAML
 geoip2
+netifaces
 python-iptables
