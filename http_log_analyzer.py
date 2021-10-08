@@ -137,6 +137,8 @@ class Config():
                 self.whitelist_requests = conf['whitelist_requests']
             if 'whitelist_ip' in conf:
                 self.whitelist_ip = conf['whitelist_ip']
+            if 'block_cmd' in conf:
+                self.block_cmd = conf['block_cmd']
 
 
 class Tail(object):
