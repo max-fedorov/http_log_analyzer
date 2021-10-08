@@ -119,7 +119,7 @@ class Log:
                 request.datetime = dt
                 if request.ip not in self.db_dns:
                     if self.global_params.resolve:
-                        self.db_dns[request.ip] = socket.getfqdn(request.ip)
+                        self.db_dns[request.ip] = socket.getfqdn(request.ip).lower()
                     else:
                         self.db_dns[request.ip] = '--'
                 request.reverse_dns = self.db_dns[request.ip]
