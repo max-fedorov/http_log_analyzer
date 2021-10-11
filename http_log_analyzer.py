@@ -571,7 +571,7 @@ if __name__ == '__main__':
     if args.geo:
         params.geo = args.geo
     if args.resolve:
-        params.resolve = args.resolve
+        params.resolve = False
 
     try:
         if not params.quiet:
