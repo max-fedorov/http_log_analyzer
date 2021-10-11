@@ -484,6 +484,8 @@ if __name__ == '__main__':
         '--show', nargs='+', help='Which type of TOP to show: "rps", "ip", "req", "agent", "status", "slow", "geo"')
     parser.add_argument('--count', dest='top_count',
                         type=int, help="Number of TOP records")
+    parser.add_argument('--no-resolve', dest="resolve",
+                        help="Don't resolve IPs to hostnames", action="store_true")
     parser.add_argument('--quiet', '-q', dest="quiet",
                         help="Run in non interactive mode(show only blocked IPs)", action="store_true")
     parser.add_argument(
@@ -568,6 +570,8 @@ if __name__ == '__main__':
         params.status = args.status
     if args.geo:
         params.geo = args.geo
+    if args.resolve:
+        params.resolve = args.resolve
 
     try:
         if not params.quiet:
