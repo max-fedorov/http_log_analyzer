@@ -82,6 +82,7 @@ class Config:
             self.parse(conf_path)
         else:
             error('File "{}" not found'.format(conf_path))
+        self.exit = False
 
     def parse(self, path):
         with open(path, 'r') as stream:
@@ -198,7 +199,6 @@ def get_files(path):
 
 
 def block():
-    threading.currentThread()
     while True:
         if params.la_threshold > round(os.getloadavg()[0], 3):
             return
@@ -267,6 +267,8 @@ def block():
             if not block_ip and count >= params.block_threshold_ip:
                 exec_block(ip, count, 'ip', params)
                 del params.access_log.ip[ip]
+        if params.exit:
+            return
         time.sleep(1)
 
 
@@ -307,8 +309,10 @@ def parse():
             logs = open(log_file).read()
             callback_parse_line(logs)
 
+    params.exit = True
     for thread in threads:
-        thread.do_run = False
+        thread.join()
+
 
 
 def callback_parse_line(data):
@@ -316,7 +320,6 @@ def callback_parse_line(data):
 
 
 def show_stat():
-    threading.currentThread()
     while True:
         if params.close_ts is None or params.start_ts is None: continue
         try:
@@ -334,6 +337,8 @@ def show_stat():
         stdscr.addstr(stat)
         stdscr_refresh()
         params.stdscr_contents = stat
+        if params.exit:
+            return
         time.sleep(1)
 
 
