@@ -8,10 +8,9 @@ Requirements: Python 3.6+
 cd /opt
 git clone https://github.com/max-fedorov/http_log_analyzer.git
 cd http_log_analyzer/
-chmod +x http_log_analyzer.py iptctl.py
 python3 -m venv env
 source env/bin/activate
-pip  install -r requirements.txt
+pip install -r requirements.txt
 deactivate
 ```
 

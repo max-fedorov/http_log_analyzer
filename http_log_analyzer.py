@@ -315,7 +315,6 @@ def parse():
     time.sleep(2)
 
 
-
 def callback_parse_line(data):
     params.access_log.parse(data)
 
