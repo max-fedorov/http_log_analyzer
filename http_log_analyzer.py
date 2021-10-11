@@ -28,7 +28,7 @@ TIME_FORMAT = '%Y-%m-%d %H:%M:%S'
 TIMEZONE_OFFSET = 3.0  # Moscow Time (UTC+03:00)
 
 
-class Config():
+class Config:
     def __init__(self, conf_path=None):
         self.access_log = Log(self)
         self.tailf = False
@@ -166,7 +166,7 @@ class Tail(object):
                     file_.seek(curr_position)
                     time.sleep(s)
                 else:
-                    self.callback(line, self.params)
+                    self.callback(line)
 
     def register_callback(self, func):
         self.callback = func
@@ -312,10 +312,7 @@ def parse():
 
 
 def callback_parse_line(data):
-    new_requests = params.access_log.parse(data)
-    #if params.block or params.block_demo:
-    #    for req in new_requests:
-    #        block(req)
+    params.access_log.parse(data)
 
 
 def show_stat():
@@ -370,7 +367,7 @@ def generate_stat():
                                                          h=params.access_log.db_dns[name],
                                                          g=params.access_log.db_geo[name])
             else:
-                out += '{v}\t{k}\n'.format(k=name, v=count)
+                out += '{v}\t{k}\t({g})\n'.format(k=name, v=count, g=params.access_log.db_geo[name])
 
     if params.show_ip:
         out += '-' * 40 + '\nTOP {n} by IP (Uniq {c}/{t})\n\n'.format(n=params.top_count,
@@ -384,7 +381,7 @@ def generate_stat():
                                                          h=params.access_log.db_dns[name],
                                                          g=params.access_log.db_geo[name])
             else:
-                out += '{v}\t{k}\n'.format(k=name, v=count)
+                out += '{v}\t{k}\t({g})\n'.format(k=name, v=count, g=params.access_log.db_geo[name])
 
     if params.show_request:
         out += '-' * 40 + '\nTOP {n} by REQUEST (Uniq {c}/{t})\n\n'.format(
