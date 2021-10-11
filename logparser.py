@@ -35,6 +35,7 @@ class RequestParams:
         self.reverse_dns = None
         self.geo = None
         self.datetime = None
+        self.log_line = None
 
 
 class Ip:
@@ -113,6 +114,7 @@ class Log:
                 request.status_code = datadict['status']
                 request.host = datadict['host']
                 request.request_time = datadict['request_time']
+                request.log_line = l
                 datetimestring = datadict['datetime']
                 dt = datetime.datetime.strptime(
                     datetimestring.split()[0], '%d/%b/%Y:%H:%M:%S')
@@ -183,49 +185,54 @@ class Log:
 
         self.total += 1
         self.all_requests[request.id] = request
-        if request.ip in self.ip:
-            self.ip[request.ip].requests.append(request.id)
-        else:
-            self.ip[request.ip] = Ip()
-            self.ip[request.ip].name = request.ip
-            self.ip[request.ip].requests.append(request.id)
-            self.ip[request.ip].dns = request.reverse_dns
-            self.ip[request.ip].geo = request.geo
+        try:
+            if request.ip in self.ip:
+                self.ip[request.ip].requests.append(request.id)
+            else:
+                self.ip[request.ip] = Ip()
+                self.ip[request.ip].name = request.ip
+                self.ip[request.ip].requests.append(request.id)
+                self.ip[request.ip].dns = request.reverse_dns
+                self.ip[request.ip].geo = request.geo
 
-        if request.request_url in self.request_url:
-            self.request_url[request.request_url].requests.append(request.id)
-        else:
-            self.request_url[request.request_url] = RequestUrl()
-            self.request_url[request.request_url].name = request.request_url
-            self.request_url[request.request_url].requests.append(request.id)
+            if request.request_url in self.request_url:
+                self.request_url[request.request_url].requests.append(request.id)
+            else:
+                self.request_url[request.request_url] = RequestUrl()
+                self.request_url[request.request_url].name = request.request_url
+                self.request_url[request.request_url].requests.append(request.id)
 
-        if request.user_agent in self.user_agent:
-            self.user_agent[request.user_agent].requests.append(request.id)
-        else:
-            self.user_agent[request.user_agent] = UserAgent()
-            self.user_agent[request.user_agent].name = request.user_agent
-            self.user_agent[request.user_agent].requests.append(request.id)
+            if request.user_agent in self.user_agent:
+                self.user_agent[request.user_agent].requests.append(request.id)
+            else:
+                self.user_agent[request.user_agent] = UserAgent()
+                self.user_agent[request.user_agent].name = request.user_agent
+                self.user_agent[request.user_agent].requests.append(request.id)
 
-        if request.status_code in self.status_code:
-            self.status_code[request.status_code].requests.append(request.id)
-        else:
-            self.status_code[request.status_code] = StatusCode()
-            self.status_code[request.status_code].name = request.status_code
-            self.status_code[request.status_code].requests.append(request.id)
+            if request.status_code in self.status_code:
+                self.status_code[request.status_code].requests.append(request.id)
+            else:
+                self.status_code[request.status_code] = StatusCode()
+                self.status_code[request.status_code].name = request.status_code
+                self.status_code[request.status_code].requests.append(request.id)
 
-        if request.geo in self.geo:
-            self.geo[request.geo].requests.append(request.id)
-        else:
-            self.geo[request.geo] = Geo()
-            self.geo[request.geo].name = request.geo
-            self.geo[request.geo].requests.append(request.id)
+            if request.geo in self.geo:
+                self.geo[request.geo].requests.append(request.id)
+            else:
+                self.geo[request.geo] = Geo()
+                self.geo[request.geo].name = request.geo
+                self.geo[request.geo].requests.append(request.id)
 
-        if float(request.request_time) > 0.000:
-            # key = '{t}:@:{i}:@:{r}'.format(t=request.datetime.timestamp(),
-            #                            i=request.ip, r=request.request_url)
-            self.slow_request[request.id] = SlowRequest()
-            self.slow_request[request.id].time = request.request_time
-            self.slow_request[request.id].name = request.request_url
+            if float(request.request_time) > 0.000:
+                # key = '{t}:@:{i}:@:{r}'.format(t=request.datetime.timestamp(),
+                #                            i=request.ip, r=request.request_url)
+                self.slow_request[request.id] = SlowRequest()
+                self.slow_request[request.id].time = request.request_time
+                self.slow_request[request.id].name = request.request_url
+        except ValueError as er:
+            self._logger.error(er)
+            self._logger.debug(request.log_line)
+
 
     @staticmethod
     def get_geo(ip: str) -> str:

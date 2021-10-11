@@ -19,6 +19,7 @@ import yaml
 import ipaddress
 import logging
 import netifaces
+import threading
 from logging.config import fileConfig
 from logparser import Log
 
@@ -62,6 +63,7 @@ class Config():
         self.stdscr = None
         self.stdscr_contents = ''
         self.max_rps = (0, '')
+        self.quiet = False
         self.block = False
         self.block_demo = False
         self.blocked_list = []
@@ -139,6 +141,12 @@ class Config():
                 self.whitelist_ip = conf['whitelist_ip']
             if 'block_cmd' in conf:
                 self.block_cmd = conf['block_cmd']
+            if 'block' in conf:
+                self.block = conf['block']
+            if 'block_demo' in conf:
+                self.block_demo = conf['block_demo']
+            if 'quiet' in conf:
+                self.quiet = conf['quiet']
 
 
 class Tail(object):
@@ -160,11 +168,11 @@ class Tail(object):
                 else:
                     self.callback(line, self.params)
 
-    def register_callback(self, func, params):
+    def register_callback(self, func):
         self.callback = func
-        self.params = params
 
-    def check_file_validity(self, file_):
+    @staticmethod
+    def check_file_validity(file_):
         if not os.access(file_, os.F_OK):
             raise TailError("File '%s' does not exist" % (file_))
         if not os.access(file_, os.R_OK):
@@ -189,79 +197,83 @@ def get_files(path):
     return paths
 
 
-def block(request):
-    if params.la_threshold > round(os.getloadavg()[0], 3):
-        return
-    stat = [(params.access_log.rps[id].name, len(
+def block():
+    threading.currentThread()
+    while True:
+        if params.la_threshold > round(os.getloadavg()[0], 3):
+            return
+        stat = [(params.access_log.rps[id].name, len(
             params.access_log.rps[id].requests)) for id in params.access_log.rps]
-    for ip, count in sorted(stat, key=lambda kv: kv[1], reverse=True):
-        if ip in params.blocked_list:
-            continue
-        cont = False
-        for net in params.whitelist_ip:
-            if ipaddress.ip_address(ip) in ipaddress.ip_network(net):
-                cont = True
-                break
-        for d in params.whitelist_dns:
-            if d in params.access_log.db_dns[ip]:
-                cont = True
-                break
-        if cont:
-            continue
-        block_ip = False
-        # block by bad dns
-        if params.bad_dns_block_threshold_rps is not None and count >= params.bad_dns_block_threshold_rps:
-            for d in params.bad_dns:
-                if d in params.access_log.db_dns[ip]:
-                    block_ip = True
+        for ip, count in sorted(stat, key=lambda kv: kv[1], reverse=True):
+            if ip in params.blocked_list:
+                continue
+            cont = False
+            for net in params.whitelist_ip:
+                if ipaddress.ip_address(ip) in ipaddress.ip_network(net):
+                    cont = True
                     break
-            if block_ip:
-                exec_block(ip, count, 'bad_dns', params)
-                del params.access_log.rps[ip]
+            for d in params.whitelist_dns:
+                if d in params.access_log.db_dns[ip]:
+                    cont = True
+                    break
+            if cont:
                 continue
-        # block by bad user agent
-        if params.bad_user_agent_block_threshold_rps is not None and count >= params.bad_user_agent_block_threshold_rps:
-            num = 0
-            for r in params.access_log.rps[ip].requests:
-                req = params.access_log.all_requests[r]
-                ua = req.user_agent
-                for a in params.bad_user_agent:
-                    if a in ua:
-                        num += 1
-            if num >= params.bad_user_agent_block_threshold_rps:
-                exec_block(ip, count, 'bad_user_agent', params)
+            block_ip = False
+            # block by bad dns
+            if params.bad_dns_block_threshold_rps is not None and count >= params.bad_dns_block_threshold_rps:
+                for d in params.bad_dns:
+                    if d in params.access_log.db_dns[ip]:
+                        block_ip = True
+                        break
+                if block_ip:
+                    exec_block(ip, count, 'bad_dns', params)
+                    del params.access_log.rps[ip]
+                    continue
+            # block by bad user agent
+            if params.bad_user_agent_block_threshold_rps is not None and count >= params.bad_user_agent_block_threshold_rps:
+                num = 0
+                for r in params.access_log.rps[ip].requests:
+                    req = params.access_log.all_requests[r]
+                    ua = req.user_agent
+                    for a in params.bad_user_agent:
+                        if a in ua:
+                            num += 1
+                if num >= params.bad_user_agent_block_threshold_rps:
+                    exec_block(ip, count, 'bad_user_agent', params)
+                    del params.access_log.rps[ip]
+                    continue
+            if count >= params.block_threshold_rps:
+                exec_block(ip, count, 'rps', params)
                 del params.access_log.rps[ip]
-                continue
-        if count >= params.block_threshold_rps:
-            exec_block(ip, count, 'rps', params)
-            del params.access_log.rps[ip]
 
-    # block by ip count
-    stat = [(params.access_log.ip[id].name, len(
+        # block by ip count
+        stat = [(params.access_log.ip[id].name, len(
             params.access_log.ip[id].requests)) for id in params.access_log.ip]
-    for ip, count in sorted(stat, key=lambda kv: kv[1], reverse=True):
-        if ip in params.blocked_list:
-            continue
-        cont = False
-        for net in params.whitelist_ip:
-            if ipaddress.ip_address(ip) in ipaddress.ip_network(net):
-                cont = True
-                break
-        for d in params.whitelist_dns:
-            if d in params.access_log.db_dns[ip]:
-                cont = True
-                break
-        if cont:
-            continue
-        block_ip = False
-        if not block_ip and count >= params.block_threshold_ip:
-            exec_block(ip, count, 'ip', params)
-            del params.access_log.ip[ip]
+        for ip, count in sorted(stat, key=lambda kv: kv[1], reverse=True):
+            if ip in params.blocked_list:
+                continue
+            cont = False
+            for net in params.whitelist_ip:
+                if ipaddress.ip_address(ip) in ipaddress.ip_network(net):
+                    cont = True
+                    break
+            for d in params.whitelist_dns:
+                if d in params.access_log.db_dns[ip]:
+                    cont = True
+                    break
+            if cont:
+                continue
+            block_ip = False
+            if not block_ip and count >= params.block_threshold_ip:
+                exec_block(ip, count, 'ip', params)
+                del params.access_log.ip[ip]
+        time.sleep(1)
 
 
 def exec_block(ip, count, block_type, params):
     info('LA: {la} BLOCK by {t}:\t{v}\t{k}\t{g}\t({h})'.format(la=round(os.getloadavg()[0], 3),
-                                                               k=ip, v=count, h=params.access_log.db_dns[ip], t=block_type, g=params.access_log.db_geo[ip]))
+                                                               k=ip, v=count, h=params.access_log.db_dns[ip],
+                                                               t=block_type, g=params.access_log.db_geo[ip]))
     params.blocked_list.append(ip)
 
     if not params.block_demo:
@@ -272,40 +284,60 @@ def exec_block(ip, count, block_type, params):
 
 
 def parse():
+    threads = []
+    if not params.quiet:
+        thread_show_stat = threading.Thread(name="show_stat", target=show_stat, daemon=True)
+        thread_show_stat.start()
+        threads.append(thread_show_stat)
+    if params.block or params.block_demo:
+        thread_block = threading.Thread(name="block", target=block, daemon=True)
+        thread_block.start()
+        threads.append(thread_block)
+
     log_file = params.log
     if log_file.endswith(".gz"):
         logs = gzip.open(log_file).read()
-        callback_parse_line(logs.decode("utf-8"), params)
+        callback_parse_line(logs.decode("utf-8"))
     else:
         if params.tailf:
             t = Tail(log_file)
-            t.register_callback(callback_parse_line, params)
+            t.register_callback(callback_parse_line)
             t.follow(s=params.update_interval)
         else:
             logs = open(log_file).read()
-            callback_parse_line(logs, params)
+            callback_parse_line(logs)
+
+    for thread in threads:
+        thread.do_run = False
 
 
-def callback_parse_line(data, params):
+def callback_parse_line(data):
     new_requests = params.access_log.parse(data)
-    if params.block or params.block_demo:
-        for req in new_requests:
-            block(req)
-    else:
-        if params.start_ts is not None and params.close_ts is not None:
-            show_stat()
+    #if params.block or params.block_demo:
+    #    for req in new_requests:
+    #        block(req)
 
 
 def show_stat():
-    stat = generate_stat()
-    height, width = params.scr.getmaxyx()
-    stdscr = params.stdscr
-    stdscr.clear()
-    stdscr.scrollok(True)
-    def stdscr_refresh(): return stdscr.refresh(0, 0, 0, 0, height-1, width)
-    stdscr.addstr(stat)
-    stdscr_refresh()
-    params.stdscr_contents = stat
+    threading.currentThread()
+    while True:
+        if params.close_ts is None or params.start_ts is None: continue
+        try:
+            stat = generate_stat()
+        except RuntimeError:
+            continue
+        height, width = params.scr.getmaxyx()
+        stdscr = params.stdscr
+        stdscr.clear()
+        stdscr.scrollok(True)
+
+        def stdscr_refresh():
+            return stdscr.refresh(0, 0, 0, 0, height - 1, width)
+
+        stdscr.addstr(stat)
+        stdscr_refresh()
+        params.stdscr_contents = stat
+        time.sleep(1)
 
 
 def generate_stat():
@@ -317,19 +349,19 @@ def generate_stat():
     if params.agent is not None:
         out += 'Filtered by USER_AGENT: "{}"\n'.format(params.agent)
     run_time = str(params.close_ts - params.start_ts).split('.')[0]
-    out += 'Total requests: {t} || '\
-        'RPS last: {rs} max: {rm} || '\
-        'CPU LA: {la} || '\
-        'Run time: {rt} || '\
-        'Cur time: {dt}\n\n'.format(t=params.access_log.total,
-                                    rs=params.last_rps,
-                                    rt=run_time,
-                                    rm=len(params.max_rps),
-                                    dt=str(datetime.datetime.now()).split(
-                                        '.')[0],
-                                    la=os.getloadavg())
+    out += 'Total requests: {t} || ' \
+           'RPS last: {rs} max: {rm} || ' \
+           'CPU LA: {la} || ' \
+           'Run time: {rt} || ' \
+           'Cur time: {dt}\n\n'.format(t=params.access_log.total,
+                                       rs=params.last_rps,
+                                       rt=run_time,
+                                       rm=len(params.max_rps),
+                                       dt=str(datetime.datetime.now()).split(
+                                           '.')[0],
+                                       la=[round(la, 3) for la in os.getloadavg()])
     if params.show_rps:
-        out += '-'*40 + '\nTOP {n} IP by RPS\n\n'.format(n=params.top_count)
+        out += '-' * 40 + '\nTOP {n} IP by RPS\n\n'.format(n=params.top_count)
         stat = [(params.access_log.rps[id].name, len(
             params.access_log.rps[id].requests)) for id in params.access_log.rps]
         for name, count in sorted(stat, key=lambda kv: kv[1], reverse=True)[:params.top_count]:
@@ -341,8 +373,9 @@ def generate_stat():
                 out += '{v}\t{k}\n'.format(k=name, v=count)
 
     if params.show_ip:
-        out += '-'*40 + '\nTOP {n} by IP (Uniq {c}/{t})\n\n'.format(n=params.top_count,
-                                                                    c=len(params.access_log.ip), t=params.access_log.total)
+        out += '-' * 40 + '\nTOP {n} by IP (Uniq {c}/{t})\n\n'.format(n=params.top_count,
+                                                                      c=len(params.access_log.ip),
+                                                                      t=params.access_log.total)
         stat = [(params.access_log.ip[id].name, len(
             params.access_log.ip[id].requests)) for id in params.access_log.ip]
         for name, count in sorted(stat, key=lambda kv: kv[1], reverse=True)[:params.top_count]:
@@ -354,7 +387,7 @@ def generate_stat():
                 out += '{v}\t{k}\n'.format(k=name, v=count)
 
     if params.show_request:
-        out += '-'*40 + '\nTOP {n} by REQUEST (Uniq {c}/{t})\n\n'.format(
+        out += '-' * 40 + '\nTOP {n} by REQUEST (Uniq {c}/{t})\n\n'.format(
             n=params.top_count, c=len(params.access_log.request_url), t=params.access_log.total)
         stat = [(params.access_log.request_url[id].name, len(
             params.access_log.request_url[id].requests)) for id in params.access_log.request_url]
@@ -362,7 +395,7 @@ def generate_stat():
             out += '{v}\t{k}\n'.format(k=name, v=count)
 
     if params.show_slow_requests:
-        out += '-'*40 + '\nTOP {n} by SLOW REQUESTS (Uniq {c}/{t})\n\n'.format(
+        out += '-' * 40 + '\nTOP {n} by SLOW REQUESTS (Uniq {c}/{t})\n\n'.format(
             n=params.top_count, c=len(params.access_log.slow_request), t=params.access_log.total)
         stat = [(params.access_log.slow_request[id].name,
                  params.access_log.slow_request[id].time) for id in params.access_log.slow_request]
@@ -370,7 +403,7 @@ def generate_stat():
             out += '{v}\t{k}\n'.format(k=name, v=count)
 
     if params.show_agent:
-        out += '-'*40 + '\nTOP {n} by USER_AGENT (Uniq {c}/{t})\n\n'.format(
+        out += '-' * 40 + '\nTOP {n} by USER_AGENT (Uniq {c}/{t})\n\n'.format(
             n=params.top_count, c=len(params.access_log.user_agent), t=params.access_log.total)
         stat = [(params.access_log.user_agent[id].name, len(
             params.access_log.user_agent[id].requests)) for id in params.access_log.user_agent]
@@ -378,14 +411,14 @@ def generate_stat():
             out += '{v}\t{k}\n'.format(k=name, v=count)
 
     if params.show_status:
-        out += '-'*40 + '\nTOP {n} by STATUS\n\n'.format(n=params.top_count)
+        out += '-' * 40 + '\nTOP {n} by STATUS\n\n'.format(n=params.top_count)
         stat = [(params.access_log.status_code[id].name, len(
             params.access_log.status_code[id].requests)) for id in params.access_log.status_code]
         for name, count in sorted(stat, key=lambda kv: kv[1], reverse=True)[:params.top_count]:
             out += '{v}\t{k}\n'.format(k=name, v=count)
 
     if params.show_geo:
-        out += '-'*40 + '\nTOP {n} by GEO\n\n'.format(n=params.top_count)
+        out += '-' * 40 + '\nTOP {n} by GEO\n\n'.format(n=params.top_count)
         stat = [(params.access_log.geo[id].name, len(
             params.access_log.geo[id].requests)) for id in params.access_log.geo]
         for name, count in sorted(stat, key=lambda kv: kv[1], reverse=True)[:params.top_count]:
@@ -395,25 +428,26 @@ def generate_stat():
 
 
 def get_local_ips():
-    ips = [netifaces.ifaddresses(ifaceName).setdefault(netifaces.AF_INET)[0]['addr']
-     for ifaceName in netifaces.interfaces() if netifaces.ifaddresses(ifaceName).setdefault(netifaces.AF_INET)]
+    ips = [netifaces.ifaddresses(intf).setdefault(netifaces.AF_INET)[0]['addr']
+           for intf in netifaces.interfaces() if netifaces.ifaddresses(intf).setdefault(netifaces.AF_INET)]
     return ips
 
 
 def main(scr=None):
-    if not params.block and not params.block_demo:
+    if not params.quiet:
         scr.keypad(True)
         curses.noecho()
         height, width = scr.getmaxyx()
         scr.refresh()
         scr.clear()
-        stdscr = curses.newpad(height+100, width)
+        stdscr = curses.newpad(height + 100, width)
         params.stdscr = stdscr
         params.scr = scr
 
     local_ips = get_local_ips()
     if len(local_ips):
         params.whitelist_ip.extend(local_ips)
+    params.whitelist_ip = list(set(params.whitelist_ip))
     if params.path is None:
         error('Bad value for argument --path : "{}"'.format(params.path))
         quit(0)
@@ -453,6 +487,8 @@ if __name__ == '__main__':
         '--show', nargs='+', help='Which type of TOP to show: "rps", "ip", "req", "agent", "status", "slow", "geo"')
     parser.add_argument('--count', dest='top_count',
                         type=int, help="Number of TOP records")
+    parser.add_argument('--quiet', '-q', dest="quiet",
+                        help="Run in non interactive mode(show only blocked IPs)", action="store_true")
     parser.add_argument(
         '--block', help="Block top IPs in iptables", action="store_true")
     parser.add_argument('--block-demo', dest="block_demo",
@@ -513,6 +549,8 @@ if __name__ == '__main__':
 
     if args.interval:
         params.collect_interval = args.interval
+    if args.quiet:
+        params.quiet = args.quiet
     if args.block:
         params.block = args.block
     if args.block_demo:
@@ -535,7 +573,7 @@ if __name__ == '__main__':
         params.geo = args.geo
 
     try:
-        if not params.block and not params.block_demo:
+        if not params.quiet:
             curses.wrapper(main)
         else:
             main()
@@ -545,5 +583,5 @@ if __name__ == '__main__':
         debug(traceback.format_exc())
         error(er)
     finally:
-        for l in params.stdscr_contents.splitlines():
-            info(str(l).strip().lstrip('b').strip("'").strip())
+        for line in params.stdscr_contents.splitlines():
+            info('{}\r'.format(line))
