@@ -312,6 +312,7 @@ def parse():
     params.exit = True
     for thread in threads:
         thread.join()
+    time.sleep(2)
 
 
 
