@@ -5,10 +5,11 @@ top_count: 10
 show_rps: True
 show_ip: True
 show_request: True
-show_agent: False
-show_status: False
-show_geo: False
-show_slow_requests: False
+show_agent: True
+show_status: True
+show_geo: True
+show_slow_requests: True
+show_host: True
 
 la_threshold: 0
 block_threshold_rps: 20

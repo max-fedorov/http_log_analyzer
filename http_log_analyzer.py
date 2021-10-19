@@ -17,6 +17,7 @@ from subprocess import Popen, PIPE
 import traceback
 import yaml
 import ipaddress
+import socket
 import logging
 import netifaces
 import threading
@@ -41,6 +42,7 @@ class Config:
         self.agent = None
         self.status = None
         self.geo = None
+        self.host = None
         self.resolve = True
         self.top_count = 10
         self.show_agent = False
@@ -50,6 +52,7 @@ class Config:
         self.show_rps = False
         self.show_status = False
         self.show_geo = False
+        self.show_host = False
         self.update_interval = 1
         self.rps_interval = 1
         self.collect_interval = 5  # clear collected data every 5min
@@ -118,6 +121,8 @@ class Config:
                 self.show_slow_requests = conf['show_slow_requests']
             if 'show_geo' in conf:
                 self.show_geo = conf['show_geo']
+            if 'show_host' in conf:
+                self.show_host = conf['show_host']
 
             if 'la_threshold' in conf:
                 self.la_threshold = conf['la_threshold']
@@ -203,7 +208,7 @@ def block():
         if params.la_threshold > round(os.getloadavg()[0], 3):
             return
         stat = [(params.access_log.rps[id].name, len(
-            params.access_log.rps[id].requests)) for id in params.access_log.rps]
+            params.access_log.rps[id].requests)) for id in params.access_log.rps.copy()]
         for ip, count in sorted(stat, key=lambda kv: kv[1], reverse=True):
             if ip in params.blocked_list:
                 continue
@@ -248,7 +253,8 @@ def block():
 
         # block by ip count
         stat = [(params.access_log.ip[id].name, len(
-            params.access_log.ip[id].requests)) for id in params.access_log.ip]
+            params.access_log.ip[id].requests)) for id in params.access_log.ip.copy()]
+
         for ip, count in sorted(stat, key=lambda kv: kv[1], reverse=True):
             if ip in params.blocked_list:
                 continue
@@ -273,6 +279,8 @@ def block():
 
 
 def exec_block(ip, count, block_type, params):
+    if ip not in params.access_log.db_dns or params.access_log.db_dns[ip] == '--':
+        params.access_log.db_dns[ip] = socket.getfqdn(ip).lower()
     info('LA: {la} BLOCK by {t}:\t{v}\t{k}\t{g}\t({h})'.format(la=round(os.getloadavg()[0], 3),
                                                                k=ip, v=count, h=params.access_log.db_dns[ip],
                                                                t=block_type, g=params.access_log.db_geo[ip]))
@@ -298,16 +306,18 @@ def parse():
 
     log_file = params.log
     if log_file.endswith(".gz"):
-        logs = gzip.open(log_file).read()
-        callback_parse_line(logs.decode("utf-8"))
+        with gzip.open(log_file) as lf:
+            for line in lf:
+                callback_parse_line(line.decode("utf-8"))
     else:
         if params.tailf:
             t = Tail(log_file)
             t.register_callback(callback_parse_line)
             t.follow(s=params.update_interval)
         else:
-            logs = open(log_file).read()
-            callback_parse_line(logs)
+            with open(log_file, 'r') as lf:
+                for line in lf:
+                    callback_parse_line(line)
 
     params.exit = True
     for thread in threads:
@@ -365,34 +375,32 @@ def generate_stat():
     if params.show_rps:
         out += '-' * 40 + '\nTOP {n} IP by RPS\n\n'.format(n=params.top_count)
         stat = [(params.access_log.rps[id].name, len(
-            params.access_log.rps[id].requests)) for id in params.access_log.rps]
+            params.access_log.rps[id].requests)) for id in params.access_log.rps.copy()]
         for name, count in sorted(stat, key=lambda kv: kv[1], reverse=True)[:params.top_count]:
-            if params.resolve:
-                out += '{v}\t{k}\t({g})\t({h})\n'.format(k=name, v=count,
-                                                         h=params.access_log.db_dns[name],
-                                                         g=params.access_log.db_geo[name])
-            else:
-                out += '{v}\t{k}\t({g})\n'.format(k=name, v=count, g=params.access_log.db_geo[name])
+            if name not in params.access_log.db_dns or params.access_log.db_dns[name] == '--':
+                params.access_log.db_dns[name] = socket.getfqdn(name).lower()
+            out += '{v}\t{k}\t({g})\t({h})\n'.format(k=name, v=count,
+                                                     h=params.access_log.db_dns[name],
+                                                     g=params.access_log.db_geo[name])
 
     if params.show_ip:
         out += '-' * 40 + '\nTOP {n} by IP (Uniq {c}/{t})\n\n'.format(n=params.top_count,
                                                                       c=len(params.access_log.ip),
                                                                       t=params.access_log.total)
         stat = [(params.access_log.ip[id].name, len(
-            params.access_log.ip[id].requests)) for id in params.access_log.ip]
+            params.access_log.ip[id].requests)) for id in params.access_log.ip.copy()]
         for name, count in sorted(stat, key=lambda kv: kv[1], reverse=True)[:params.top_count]:
-            if params.resolve:
-                out += '{v}\t{k}\t({g})\t({h})\n'.format(k=name, v=count,
-                                                         h=params.access_log.db_dns[name],
-                                                         g=params.access_log.db_geo[name])
-            else:
-                out += '{v}\t{k}\t({g})\n'.format(k=name, v=count, g=params.access_log.db_geo[name])
+            if name not in params.access_log.db_dns or params.access_log.db_dns[name] == '--':
+                params.access_log.db_dns[name] = socket.getfqdn(name).lower()
+            out += '{v}\t{k}\t({g})\t({h})\n'.format(k=name, v=count,
+                                                     h=params.access_log.db_dns[name],
+                                                     g=params.access_log.db_geo[name])
 
     if params.show_request:
         out += '-' * 40 + '\nTOP {n} by REQUEST (Uniq {c}/{t})\n\n'.format(
             n=params.top_count, c=len(params.access_log.request_url), t=params.access_log.total)
         stat = [(params.access_log.request_url[id].name, len(
-            params.access_log.request_url[id].requests)) for id in params.access_log.request_url]
+            params.access_log.request_url[id].requests)) for id in params.access_log.request_url.copy()]
         for name, count in sorted(stat, key=lambda kv: kv[1], reverse=True)[:params.top_count]:
             out += '{v}\t{k}\n'.format(k=name, v=count)
 
@@ -400,7 +408,7 @@ def generate_stat():
         out += '-' * 40 + '\nTOP {n} by SLOW REQUESTS (Uniq {c}/{t})\n\n'.format(
             n=params.top_count, c=len(params.access_log.slow_request), t=params.access_log.total)
         stat = [(params.access_log.slow_request[id].name,
-                 params.access_log.slow_request[id].time) for id in params.access_log.slow_request]
+                 params.access_log.slow_request[id].time) for id in params.access_log.slow_request.copy()]
         for name, count in sorted(stat, key=lambda kv: kv[1], reverse=True)[:params.top_count]:
             out += '{v}\t{k}\n'.format(k=name, v=count)
 
@@ -408,21 +416,28 @@ def generate_stat():
         out += '-' * 40 + '\nTOP {n} by USER_AGENT (Uniq {c}/{t})\n\n'.format(
             n=params.top_count, c=len(params.access_log.user_agent), t=params.access_log.total)
         stat = [(params.access_log.user_agent[id].name, len(
-            params.access_log.user_agent[id].requests)) for id in params.access_log.user_agent]
+            params.access_log.user_agent[id].requests)) for id in params.access_log.user_agent.copy()]
         for name, count in sorted(stat, key=lambda kv: kv[1], reverse=True)[:params.top_count]:
             out += '{v}\t{k}\n'.format(k=name, v=count)
 
     if params.show_status:
         out += '-' * 40 + '\nTOP {n} by STATUS\n\n'.format(n=params.top_count)
         stat = [(params.access_log.status_code[id].name, len(
-            params.access_log.status_code[id].requests)) for id in params.access_log.status_code]
+            params.access_log.status_code[id].requests)) for id in params.access_log.status_code.copy()]
         for name, count in sorted(stat, key=lambda kv: kv[1], reverse=True)[:params.top_count]:
             out += '{v}\t{k}\n'.format(k=name, v=count)
 
     if params.show_geo:
         out += '-' * 40 + '\nTOP {n} by GEO\n\n'.format(n=params.top_count)
         stat = [(params.access_log.geo[id].name, len(
-            params.access_log.geo[id].requests)) for id in params.access_log.geo]
+            params.access_log.geo[id].requests)) for id in params.access_log.geo.copy()]
+        for name, count in sorted(stat, key=lambda kv: kv[1], reverse=True)[:params.top_count]:
+            out += '{v}\t{k}\n'.format(k=name, v=count)
+
+    if params.show_host:
+        out += '-' * 40 + '\nTOP {n} by HOST\n\n'.format(n=params.top_count)
+        stat = [(params.access_log.host[id].name, len(
+            params.access_log.host[id].requests)) for id in params.access_log.host.copy()]
         for name, count in sorted(stat, key=lambda kv: kv[1], reverse=True)[:params.top_count]:
             out += '{v}\t{k}\n'.format(k=name, v=count)
 
@@ -484,9 +499,11 @@ if __name__ == '__main__':
     parser.add_argument('--agent', type=str, help="filter by user_agent")
     parser.add_argument('--status', type=str, help="filter by status code")
     parser.add_argument('--geo', type=str, help="filter by country")
+    parser.add_argument('--host', type=str, help="filter by host")
 
     parser.add_argument(
-        '--show', nargs='+', help='Which type of TOP to show: "rps", "ip", "req", "agent", "status", "slow", "geo"')
+        '--show', nargs='+',
+        help='Which type of TOP to show: "rps", "ip", "req", "agent", "status", "slow", "geo", "host"')
     parser.add_argument('--count', dest='top_count',
                         type=int, help="Number of TOP records")
     parser.add_argument('--no-resolve', dest="resolve",
@@ -533,6 +550,10 @@ if __name__ == '__main__':
             params.show_geo = True
         else:
             params.show_geo = False
+        if 'host' in args.show:
+            params.show_host = True
+        else:
+            params.show_host = False
 
     if args.start:
         try:
@@ -575,6 +596,8 @@ if __name__ == '__main__':
         params.status = args.status
     if args.geo:
         params.geo = args.geo
+    if args.host:
+        params.host = args.host
     if args.resolve:
         params.resolve = False
 

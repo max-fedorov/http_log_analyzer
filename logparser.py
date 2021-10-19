@@ -4,7 +4,7 @@ import time
 import datetime
 import geoip2.database
 import socket
-
+import calendar
 
 log_format = re.compile(r'''(?P<ip>\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\s+'''
                         r'''-\s+'''
@@ -19,6 +19,8 @@ log_format = re.compile(r'''(?P<ip>\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\s+'''
                         r'''(?P<upstream_response_time>.*?)\s+'''
                         r'''(?P<request_time>.*?)\s+'''
                         r'''(?P<host>.*?)$''', re.IGNORECASE | re.VERBOSE)
+
+month_cal = dict((v, k) for v, k in zip(calendar.month_abbr[1:], range(1, 13)))
 
 
 class RequestParams:
@@ -82,6 +84,12 @@ class Rps:
         self.requests = []
 
 
+class Host:
+    def __init__(self) -> None:
+        self.name = None
+        self.requests = []
+
+
 class Log:
     def __init__(self, params) -> None:
         self._logger = logging.getLogger(__class__.__name__)
@@ -94,6 +102,7 @@ class Log:
         self.slow_request = {}
         self.status_code = {}
         self.rps = {}
+        self.host = {}
         self.global_params = params
         self.total = 0
         self.db_dns = {}
@@ -115,9 +124,7 @@ class Log:
                 request.host = datadict['host']
                 request.request_time = datadict['request_time']
                 request.log_line = l
-                datetimestring = datadict['datetime']
-                dt = datetime.datetime.strptime(
-                    datetimestring.split()[0], '%d/%b/%Y:%H:%M:%S')
+                dt = self.string_to_datetime(datadict['datetime'])
                 request.datetime = dt
                 if request.ip not in self.db_dns:
                     if self.global_params.resolve:
@@ -137,12 +144,14 @@ class Log:
     def process(self, request: RequestParams):
         if self.global_params.collect_interval_last_ts is None:
             self.global_params.collect_interval_last_ts = request.datetime
-        if request.datetime - self.global_params.collect_interval_last_ts >= datetime.timedelta(minutes=self.global_params.collect_interval):
+        if request.datetime - self.global_params.collect_interval_last_ts >= datetime.timedelta(
+                minutes=self.global_params.collect_interval):
             self.global_params.runtime = None
             self.ip = {}
             self.request_url = {}
             self.user_agent = {}
             self.geo = {}
+            self.host = {}
             self.slow_request = {}
             self.status_code = {}
             self.rps = {}
@@ -165,12 +174,16 @@ class Log:
             return
         if self.global_params.status is not None and self.global_params.status != request.status_code:
             return
+        if self.global_params.host is not None and self.global_params.host != request.host:
+            return
         if self.global_params.runtime is None:
             self.global_params.runtime = request.datetime
             self.requests_per_interval = [request.id]
-        elif self.global_params.runtime is not None and (request.datetime - self.global_params.runtime).total_seconds() < self.global_params.rps_interval:
+        elif self.global_params.runtime is not None and (
+                request.datetime - self.global_params.runtime).total_seconds() < self.global_params.rps_interval:
             self.requests_per_interval.append(request.id)
-        elif self.global_params.runtime is not None and (request.datetime - self.global_params.runtime).total_seconds() >= self.global_params.rps_interval:
+        elif self.global_params.runtime is not None and (
+                request.datetime - self.global_params.runtime).total_seconds() >= self.global_params.rps_interval:
             self.global_params.last_rps = len(self.requests_per_interval)
             self.global_params.last_logs = self.requests_per_interval
             self.calc_rps_top(self.requests_per_interval)
@@ -223,6 +236,13 @@ class Log:
                 self.geo[request.geo].name = request.geo
                 self.geo[request.geo].requests.append(request.id)
 
+            if request.host in self.host:
+                self.host[request.host].requests.append(request.id)
+            else:
+                self.host[request.host] = Host()
+                self.host[request.host].name = request.host
+                self.host[request.host].requests.append(request.id)
+
             if float(request.request_time) > 0.000:
                 # key = '{t}:@:{i}:@:{r}'.format(t=request.datetime.timestamp(),
                 #                            i=request.ip, r=request.request_url)
@@ -230,9 +250,8 @@ class Log:
                 self.slow_request[request.id].time = request.request_time
                 self.slow_request[request.id].name = request.request_url
         except ValueError as er:
-            self._logger.error(er)
+            self._logger.debug(f'{er}')
             self._logger.debug(request.log_line)
-
 
     @staticmethod
     def get_geo(ip: str) -> str:
@@ -262,3 +281,11 @@ class Log:
                     self.rps[k].requests = tmp_rps[k].requests
             else:
                 self.rps[k] = tmp_rps[k]
+
+    @staticmethod
+    def string_to_datetime(data):
+        '''input format example: 07/Oct/2021:13:54:16 +0300'''
+        date, hour, minute, second = data.split()[0].split(':')
+        day, month, year = date.split('/')
+        month = month_cal[month]
+        return datetime.datetime.fromisoformat(f'{year}-{month}-{day} {hour}:{minute}:{second}')
