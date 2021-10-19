@@ -288,4 +288,7 @@ class Log:
         date, hour, minute, second = data.split()[0].split(':')
         day, month, year = date.split('/')
         month = month_cal[month]
-        return datetime.datetime.fromisoformat(f'{year}-{month}-{day} {hour}:{minute}:{second}')
+        # disabled for python < 3.7
+        # return datetime.datetime.fromisoformat(f'{year}-{month}-{day} {hour}:{minute}:{second}')
+        return datetime.datetime(year=int(year), month=int(month), day=int(day), hour=int(hour), minute=int(minute),
+                                 second=int(second))
