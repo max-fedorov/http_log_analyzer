@@ -1,7 +1,12 @@
 tailf: False
-resolve: False
 path: "/srv/www/example.com/logs/example.com-acc"
-collect_interval: 5
+
+#clear collected data every 5 min
+#collect_interval: 5
+
+#collect all data
+collect_interval: 99999999
+
 top_count: 10
 show_rps: True
 show_ip: True
@@ -27,6 +32,8 @@ block_threshold_ip: 4000
 #  - "4seo-checker-bot"
 #  - "YandexBot"
 
+#set "resolve: True" for block by bad_dns
+resolve: False
 #bad_dns_block_threshold_rps: 2
 #bad_dns:
 #  - "tor"

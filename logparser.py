@@ -140,6 +140,10 @@ class Log:
         for l in data.splitlines():
             request = self.process_log_line(l)
             if request.ip is None: continue
+            if self.global_params.processed_first_request_datetime is None:
+                self.global_params.processed_first_request_datetime = request.datetime
+            self.global_params.processed_last_request_datetime = request.datetime
+            self.global_params.processed_requests_total += 1
             if request.ip not in self.db_dns:
                 if self.global_params.resolve:
                     self.db_dns[request.ip] = socket.getfqdn(request.ip).lower()

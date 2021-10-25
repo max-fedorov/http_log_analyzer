@@ -82,6 +82,9 @@ class Config:
         self.whitelist_dns = []
         self.whitelist_ip = ['127.0.0.1']
         self.block_cmd = '''./iptctl.py --time 60 --add {ip}'''
+        self.processed_requests_total = 0
+        self.processed_first_request_datetime = None
+        self.processed_last_request_datetime = None
         if os.path.exists(conf_path):
             self.parse(conf_path)
         else:
@@ -340,7 +343,7 @@ def show_stat():
         return stdscr.refresh(0, 0, 0, 0, height - 1, width)
 
     while True:
-        if params.close_ts is None or params.start_ts is None: continue
+        #if params.close_ts is None or params.start_ts is None: continue
         try:
             stat = generate_stat()
         except RuntimeError:
@@ -368,18 +371,26 @@ def generate_stat():
     if params.host is not None:
         out += 'Filtered by HOST: "{}"\n'.format(params.host)
 
-    run_time = str(params.close_ts - params.start_ts).split('.')[0]
+    try:
+        run_time = str(params.close_ts - params.start_ts).split('.')[0]
+    except Exception:
+        run_time = '00:00'
+
     out += 'Total requests: {t} || ' \
            'RPS last: {rs} max: {rm} || ' \
            'CPU LA: {la} || ' \
-           'Run time: {rt} || ' \
-           'Cur time: {dt}\n\n'.format(t=params.access_log.total,
+           'Filtered stat time: {rt} || ' \
+           'Processed requests: {ptr}\ttime: {pdts} - {pdtl}\n\n'.format(t=params.access_log.total,
                                        rs=params.last_rps,
                                        rt=run_time,
                                        rm=len(params.max_rps),
-                                       dt=str(datetime.datetime.now()).split(
+                                       pdts=str(params.processed_first_request_datetime).split(
                                            '.')[0],
+                                       pdtl=str(params.processed_last_request_datetime).split(
+                                                                                        '.')[0],
+                                       ptr=params.processed_requests_total,
                                        la=[round(la, 3) for la in os.getloadavg()])
+
     if params.show_rps:
         out += '-' * 40 + '\nTOP {n} IP by RPS\n\n'.format(n=params.top_count)
         stat = [(params.access_log.rps[id].name, len(
