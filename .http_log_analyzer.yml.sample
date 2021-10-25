@@ -1,4 +1,5 @@
-tailf: True
+tailf: False
+resolve: False
 path: "/srv/www/example.com/logs/example.com-acc"
 collect_interval: 5
 top_count: 10

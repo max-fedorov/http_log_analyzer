@@ -27,11 +27,14 @@ class RequestParams:
     def __init__(self) -> None:
         self.id = time.time()
         self.ip = None
+        self.user = None
         self.request_url = None
-        self.bytessent = None
+        self.size = None
         self.referrer = None
         self.user_agent = None
         self.status_code = None
+        self.upstream_response_time = None
+        self.upstream = None
         self.request_time = None
         self.host = None
         self.reverse_dns = None
@@ -108,37 +111,46 @@ class Log:
         self.db_dns = {}
         self.db_geo = {}
 
+    def process_log_line(self, line: str) -> RequestParams:
+        request = RequestParams()
+        request.log_line = line
+        sep = r'\s(?=(?:[^"]*"[^"]*")*[^"]*$)(?![^\[]*\])'
+        try:
+            args = [el.strip('[]"') for el in re.split(sep, line)]
+            request.ip = args[0]
+            request.user = args[2]
+            dt = self.string_to_datetime(args[3])
+            request.datetime = dt
+            request.request_url = args[4]
+            request.status_code = args[5]
+            request.size = args[6]
+            request.referrer = args[7]
+            request.user_agent = args[8]
+            request.upstream = args[9]
+            request.upstream_response_time = args[10]
+            request.request_time = args[11]
+            request.host = args[12]
+        except Exception:
+            pass
+            #self._logger.debug(f'ERROR: parse line "{line}"')
+        return request
+
     def parse(self, data: str):
         new_requests = []
         for l in data.splitlines():
-            data = re.search(log_format, l)
-            if data:
-                request = RequestParams()
-                datadict = data.groupdict()
-                request.ip = datadict['ip']
-                request.request_url = datadict['request']
-                request.bytessent = datadict['bytessent']
-                request.referrer = datadict['referrer']
-                request.user_agent = datadict['useragent']
-                request.status_code = datadict['status']
-                request.host = datadict['host']
-                request.request_time = datadict['request_time']
-                request.log_line = l
-                dt = self.string_to_datetime(datadict['datetime'])
-                request.datetime = dt
-                if request.ip not in self.db_dns:
-                    if self.global_params.resolve:
-                        self.db_dns[request.ip] = socket.getfqdn(request.ip).lower()
-                    else:
-                        self.db_dns[request.ip] = '--'
-                request.reverse_dns = self.db_dns[request.ip]
-                if request.ip not in self.db_geo:
-                    self.db_geo[request.ip] = self.get_geo(request.ip)
-                request.geo = self.db_geo[request.ip]
-                self.process(request)
-                new_requests.append(request)
-            else:
-                self._logger.debug('Fail to parse line: "{}"'.format(l))
+            request = self.process_log_line(l)
+            if request.ip is None: continue
+            if request.ip not in self.db_dns:
+                if self.global_params.resolve:
+                    self.db_dns[request.ip] = socket.getfqdn(request.ip).lower()
+                else:
+                    self.db_dns[request.ip] = '--'
+            request.reverse_dns = self.db_dns[request.ip]
+            if request.ip not in self.db_geo:
+                self.db_geo[request.ip] = self.get_geo(request.ip)
+            request.geo = self.db_geo[request.ip]
+            self.process(request)
+            new_requests.append(request)
         return new_requests
 
     def process(self, request: RequestParams):
@@ -243,7 +255,7 @@ class Log:
                 self.host[request.host].name = request.host
                 self.host[request.host].requests.append(request.id)
 
-            if float(request.request_time) > 0.000:
+            if request.request_time is not None and float(request.request_time) > 0.000:
                 # key = '{t}:@:{i}:@:{r}'.format(t=request.datetime.timestamp(),
                 #                            i=request.ip, r=request.request_url)
                 self.slow_request[request.id] = SlowRequest()

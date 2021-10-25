@@ -24,6 +24,7 @@ import threading
 from logging.config import fileConfig
 from logparser import Log
 
+
 DAYS_INTERVAL = 1
 TIME_FORMAT = '%Y-%m-%d %H:%M:%S'
 TIMEZONE_OFFSET = 3.0  # Moscow Time (UTC+03:00)
@@ -322,7 +323,7 @@ def parse():
     params.exit = True
     for thread in threads:
         thread.join()
-    time.sleep(2)
+    #time.sleep(2)
 
 
 def callback_parse_line(data):
@@ -330,20 +331,22 @@ def callback_parse_line(data):
 
 
 def show_stat():
+    height, width = params.scr.getmaxyx()
+    stdscr = params.stdscr
+    stdscr.scrollok(True)
+    stdscr.clear()
+
+    def stdscr_refresh():
+        return stdscr.refresh(0, 0, 0, 0, height - 1, width)
+
     while True:
         if params.close_ts is None or params.start_ts is None: continue
         try:
             stat = generate_stat()
         except RuntimeError:
             continue
-        height, width = params.scr.getmaxyx()
-        stdscr = params.stdscr
+
         stdscr.clear()
-        stdscr.scrollok(True)
-
-        def stdscr_refresh():
-            return stdscr.refresh(0, 0, 0, 0, height - 1, width)
-
         stdscr.addstr(stat)
         stdscr_refresh()
         params.stdscr_contents = stat
@@ -360,6 +363,11 @@ def generate_stat():
         out += 'Filtered by REQUEST: "{}"\n'.format(params.request)
     if params.agent is not None:
         out += 'Filtered by USER_AGENT: "{}"\n'.format(params.agent)
+    if params.geo is not None:
+        out += 'Filtered by GEO: "{}"\n'.format(params.geo)
+    if params.host is not None:
+        out += 'Filtered by HOST: "{}"\n'.format(params.host)
+
     run_time = str(params.close_ts - params.start_ts).split('.')[0]
     out += 'Total requests: {t} || ' \
            'RPS last: {rs} max: {rm} || ' \
@@ -614,3 +622,4 @@ if __name__ == '__main__':
     finally:
         for line in params.stdscr_contents.splitlines():
             info('{}\r'.format(line))
+
