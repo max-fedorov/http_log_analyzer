@@ -263,7 +263,7 @@ class Log:
                 # key = '{t}:@:{i}:@:{r}'.format(t=request.datetime.timestamp(),
                 #                            i=request.ip, r=request.request_url)
                 self.slow_request[request.id] = SlowRequest()
-                self.slow_request[request.id].time = request.request_time
+                self.slow_request[request.id].time = float(request.request_time)
                 self.slow_request[request.id].name = request.request_url
         except ValueError as er:
             self._logger.debug(f'{er}')

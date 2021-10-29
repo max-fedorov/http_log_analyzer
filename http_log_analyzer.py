@@ -379,8 +379,8 @@ def generate_stat():
     out += 'Total requests: {t} || ' \
            'RPS last: {rs} max: {rm} || ' \
            'CPU LA: {la} || ' \
-           'Filtered stat time: {rt} || ' \
-           'Processed requests: {ptr}\ttime: {pdts} - {pdtl}\n\n'.format(t=params.access_log.total,
+           'Filtered time: {rt} || ' \
+           'Processed req: {ptr} time: {pdts} - {pdtl}\n\n'.format(t=params.access_log.total,
                                        rs=params.last_rps,
                                        rt=run_time,
                                        rm=len(params.max_rps),
